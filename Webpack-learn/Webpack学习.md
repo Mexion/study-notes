@@ -454,7 +454,7 @@ body {
 
 打包后打开`index.html`，最终效果如下：
 
-![最终效果](.\images\pic-final.png)
+![最终效果](./images/pic-final.png)
 
 可以看到不管是图片还是css或者styl，打包后都没有任何问题。
 
@@ -673,7 +673,7 @@ consale.log('Hello World');
 
 然后打包，通过chrome查看：
 
-![代码错误位置](.\images\error_code_position.png)
+![代码错误位置](./images/error_code_position.png)
 
 这里它告诉我们是`main.js`的96行出错了，但这是显然不对的，我们只写了一行代码。这是因为它显示的是dist目录输出的代码，在这里第96行的确是这行错误的代码，那么怎么让它显示这个错误在源代码中的位置呢？可以通过配置SourceMap来解决这个问题。
 
@@ -690,7 +690,7 @@ module.exports = {
 
 重新打包后查看结果： 
 
-![正确的错误位置](.\images\ture-error-code-position.png)
+![正确的错误位置](./images/ture-error-code-position.png)
 
 打包时，dist目录下还会生成一个`main.js.map`文件，这个文件是source map的映射文件。当使用含有inline关键字的配置项时这个文件不会生成，但会以base64的形式插入到生成的js文件的底部；而cheap关键字则是让提示只提示行，而不用提示第几个字符，并且只会映射业务代码，而不去映射引入的第三方模块，比如loader等，如果想要映射第三方模块，则需要在后面增加module关键字；而eval是打包速度最快的一种形式，它不会生成映射文件，也不会将映射代码插入到js文件中，而是以eval的形式执行代码，并在后面以一个sourceURL指向入口文件，eval性能较高，但是针对比较复杂的情况下，它提示的内容可能不全面。
 
