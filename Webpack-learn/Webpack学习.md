@@ -1633,4 +1633,243 @@ const prodConfig = {
 }
 ```
 
-使用占位符，如果文件内容发生了改变，文件就会生成不同的hash值，从而改变文件命名导致不同，从而让浏览器加载。
+使用占位符，如果文件内容发生了改变，文件就会生成不同的hash值，从而改变文件命名导致不同，让浏览器加载。
+
+
+
+## 18. Webpack Shimming
+
+### 18.1 Shimming的使用
+
+`webpack` 编译器`(compiler)`能够识别遵循`ES2015`模块语法、`CommonJS`或 `AMD`规范编写的模块。然而，一些第三方的库可能会引用一些全局依赖（例如 `jQuery`中的`$`）。这些库也可能创建一些需要被导出的全局变量。这些“不符合规范的模块”就是 `shimming`发挥作用的地方，在`webpack`中，每个库文件是单独的，彼此隔离的；如下面的代码：
+
+```js
+//jquery.ui.js
+export function ui () {
+  $('body').css('background', 'red')
+}
+```
+
+我们新建了一个`jquery.ui.js`，使用了`jquery`但是并没有引入它。
+
+然后我们修改入口文件，在入口文件中引入`jquery`(安装步骤略过)，然后引入`jquery.ui.js`，测试一下打包文件是否能运行：
+
+```js
+//index.js
+import $ from 'jquery';
+import { ui } from './jquery.ui';
+
+ui();
+
+const dom = $('<div/>');
+dom.html('hello world');
+$('body').append(dom);
+```
+
+在我们的一般印象中，这段代码应该是可以运行的，我们在上部分引入了`jquery`，它会在全局有一个`$`变量，然后在下方导入的文件中使用了`jquery`，应该也是可行的。但是当我们打包打开html文件后，会提示`$ is not defined at ui (jquery.ui.js:2)`。在`Webpack`中是基于模块打包的，模块之中的变量只能在模块这一个文件之中被使用，而换了一个文件再想使用上一个文件中的变量是不行的。
+
+我们一般引入的库文件是第三方的，存放在`node_module`中，我们也不可能去修改它里面的内容，所以这时候就需要使用`Shimming`来解决问题；修改我们的`webpack.common.js:new webpack.ProvidePlugin`，这个`webpack`自带的插件会进行对打包文件进行检查，如果检测到你的代码中有`$`这个符号，他会自动帮你引入`jquery`模块。然后将`jquery`模块赋值给`$`字符串。
+
+```js
+//webpack.common.js
+const Webpack = require('webpack');
+
+module.exports = {
+    plugins: [
+        new Webpack.ProvidePlugin({
+            $: 'jquery'
+        })
+    ]
+}
+```
+
+### 18.2 利用Shimming改变模块中this指向window
+
+一个模块中的`this`的指向是什么？我们知道在浏览器环境中如果没有明确调用目标，`this`指向的是全局对象`window`，那么模块中的`this`是不是指向`window`？我们修改入口文件，如下：
+
+```js
+console.log(this === window);
+```
+
+输出后发现是`false`，实际上在`webpack`的模块中，`this`指向的是这个模块自身，如果想要让每个模块的`this`都指向`window`，就需要`imports-loader`这个`loader`解决：
+
+```bash
+npm i imports-loader -D
+```
+
+然后修改配置文件：
+
+```js
+module.exports = {
+    module: {           
+        rules: [{
+            test: /\.js$/,
+            exclude: /node_modules/,
+            use: [{ loader: 'babel-loader'},{loader: 'imports-loader?this=>window'}]
+        	}
+    	]
+    }
+}
+```
+
+这时重新打包，上面的输出已经为`true`。
+
+## 19. 环境变量的使用方法
+
+现在我们的三个配置文件分别为`webpack.common.js`、`webpack.dev.js`、`webpack.prod.js`，在`webpack.dev.js`和`webpack.prod.js`中导出的都是通过`merge`融合过后的对象，现在我们可以改写一下我们的配置文件：
+
+```js
+//webpack.dev.js
+
+const Webpack = require('webpack');         //HotModuleReplacementPlugin官方自带，无需安装，引入webpack即可。
+
+const devConfig = {
+    mode: 'development',    //配置模式为开发模式
+    devtool: 'cheap-module-eval-source-map',
+    output: {
+        filename: '[name].js',  //打包出的文件名
+        chunkFilename: '[name].chunk.js',       //从入口文件分割出来的模块命名
+    },
+    devServer: {
+        contentBase: './dist',  //要启动的服务器要启在哪个文件夹下，打包文件都在dist下，所以根路径为dist
+        open: true,     //自动打开浏览器
+        hot: true,      //开启模块热替换
+        hotOnly: true   //不支持模块热替换时不自动刷新
+    },
+    plugins: [
+        new Webpack.HotModuleReplacementPlugin()
+    ]
+} 
+
+module.exports = devConfig;
+```
+
+```js
+//webpack.prod.js
+
+const OptimizeCSSAssetsPlugin = require('optimize-css-assets-webpack-plugin');
+
+const prodConfig = {
+    mode: 'production',    //配置模式为生产模式
+    devtool: 'cheap-module-source-map',
+    output: {
+        filename: '[name].[contenthash].js', 
+        chunkFilename: '[name].[contenthash].js'
+    },
+    optimization: {
+        minimizer: [new OptimizeCSSAssetsPlugin({})]
+    }
+}
+
+module.exports = prodConfig;
+```
+
+```js
+//这里引入了一个node的核心模块
+const path = require('path');
+
+const HtmlWebpackPlugin = require('html-webpack-plugin');   //引入html-webpack-plugin
+const { CleanWebpackPlugin } = require('clean-webpack-plugin'); //引入clean-webpack-plugin
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const Webpack = require('webpack');
+const merge = require('webpack-merge');
+const prodConfig = require('./webpack.prod');
+const devConfig = require('./webpack.dev');
+
+const commonConfig = {
+    entry: {
+        main: './src/index.js'
+    },    //entry配置打包的入口文件
+    output: {               //output配置打包的出口
+        path: path.resolve(__dirname, '..', 'dist') //打包后的文件存放目录
+    },
+    module: {               //这里表示当打包模块时来这里查看配置该如何打包各种类型的模块
+        rules: [{           //rules顾名思义，配置匹配模块的规则，这是一个数组，数组里的每一个对象都表示一个匹配规则
+            test: /\.(jpg|png|gif)$/,     //这里配置正则，如果模块是以jpg结尾的文件
+            use: {              //就这样去打包
+                loader: 'url-loader',       //使用file-loader这个loader来打包jpg图片
+                options: {
+                    name: '[name].[ext]',   //使用占位符来定义输出文件名
+                    outputPath: 'images/',      //配置文件输出目录，以输出目录为基点，这里表示dist下的images文件夹
+                    limit: 1024     //当文件小于1024字节（1KB）才转换为base64
+                }
+            }
+        }, {
+            test: /\.css$/,
+            use: [MiniCssExtractPlugin.loader, 'css-loader', 'postcss-loader']
+        }, {
+            test: /\.styl$/,
+            use: [MiniCssExtractPlugin.loader, {
+                loader: 'css-loader',
+                options: {
+                    importLoaders: 2
+                }
+            }, 'postcss-loader', 'stylus-loader']
+        },
+        {
+            test: /\.js$/,
+            exclude: /node_modules/,    //不包含node_modules里的文件
+            use: [
+                {
+                    loader: 'babel-loader'
+                },
+                {
+                    loader: 'imports-loader?this=>window'
+                }
+            ]
+        }
+    ]
+    },
+    plugins: [
+        new HtmlWebpackPlugin({
+            template: 'src/index.html'
+        }),
+        new CleanWebpackPlugin(),
+        new MiniCssExtractPlugin({
+            filename: '[name].css',
+            chunkFilename: '[name].chunk.css'
+        }),
+        new Webpack.ProvidePlugin({
+            $: 'jquery'
+        })
+    ],
+    optimization: {
+        splitChunks: {
+            chunks: 'all'
+        }
+    }
+}
+
+module.exports = (env) => {
+    if(env && env.production ) {
+        return merge(commonConfig, prodConfig);
+    } else {
+        return merge(commonConfig, devConfig);
+    }
+}
+```
+
+我们将`webpack.dev.js`和`webpack.prod.js`中的`webpack-merge`删除掉了，并且直接导出的是本身，而不是融合后的对象，而在`webpack.common.js`中我们引入`webpack-merge`以及`devConfig`和`prodConfig`，最后我们导出的是一个函数，而不是一个对象，这个函数的返回值根据传入的`env`决定，如果有传入`env`以及`env.production`，那么就表明是线上环境，返回融合的线上环境配置；否则，返回融合的开发环境配置。
+
+那么问题来了，怎么传入这个`env`变量呢？我们修改一下`package.json`的脚本命令：
+
+```json
+{
+   //...
+  "scripts": {
+    "dev": "webpack-dev-server --config ./build/webpack.common.js",
+    "build": "webpack --env.production --config ./build/webpack.common.js",
+    "dev-build": "webpack --config ./build/webpack.common.js"
+  },
+}
+
+```
+
+可以看到我们在`build`这条命令里加了一条参数`--env.production`，这条参数表示传入一个参数`env`，默认值为`production`，这样就可以传递入`env`参数，然后使用线上环境配置进行打包。而其他两条由于没有传递参数，所以没有`env`，也就会走`else`这个条件，使用开发环境的配置进行打包。
+
+这三条命令的用处分别是：
+
+- `dev`： 使用开发环境配置打包，并通过`webpack-dev-server`启动一个服务器方便调试。
+- `dev-build`：使用开发环境配置打包，但是不通过`webpack-dev-server`启动服务器，因为通过`webpack-dev-server`启动服务器打包的文件不生成在输出目录，而是保存在内存中，不方便我们查看，
+- `build`：使用线上环境配置打包，会开启代码压缩等一系列优化的方式。
+
