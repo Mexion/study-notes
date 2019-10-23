@@ -454,7 +454,7 @@ body {
 
 打包后打开`index.html`，最终效果如下：
 
-![最终效果](./images/pic-final.png)
+![最终效果](https://mexion.xyz//images/study-notes/Webpack-learn/pic-final.png)
 
 可以看到不管是图片还是css或者styl，打包后都没有任何问题。
 
@@ -492,7 +492,7 @@ module.exports = {
 
 接下来我们给样式表添加一些样式，效果如下：
 
-![成功添加前缀](./images/added-prefix.png)
+![成功添加前缀](https://mexion.xyz//images/study-notes/Webpack-learn/added-prefix.png)
 
 可以看到transform属性的前缀已经添加，并且样式也生效了。
 
@@ -673,7 +673,7 @@ consale.log('Hello World');
 
 然后打包，通过chrome查看：
 
-![代码错误位置](./images/error_code_position.png)
+![代码错误位置](https://mexion.xyz//images/study-notes/Webpack-learn/error_code_position.png)
 
 这里它告诉我们是`main.js`的96行出错了，但这是显然不对的，我们只写了一行代码。这是因为它显示的是dist目录输出的代码，在这里第96行的确是这行错误的代码，那么怎么让它显示这个错误在源代码中的位置呢？可以通过配置SourceMap来解决这个问题。
 
@@ -690,7 +690,7 @@ module.exports = {
 
 重新打包后查看结果： 
 
-![正确的错误位置](./images/ture-error-code-position.png)
+![正确的错误位置](https://mexion.xyz//images/study-notes/Webpack-learn/ture-error-code-position.png)
 
 打包时，dist目录下还会生成一个`main.js.map`文件，这个文件是source map的映射文件。当使用含有inline关键字的配置项时这个文件不会生成，但会以base64的形式插入到生成的js文件的底部；而cheap关键字则是让提示只提示行，而不用提示第几个字符，并且只会映射业务代码，而不去映射引入的第三方模块，比如loader等，如果想要映射第三方模块，则需要在后面增加module关键字；而eval是打包速度最快的一种形式，它不会生成映射文件，也不会将映射代码插入到js文件中，而是以eval的形式执行代码，并在后面以一个sourceURL指向入口文件，eval性能较高，但是针对比较复杂的情况下，它提示的内容可能不全面。
 
@@ -1633,7 +1633,7 @@ const prodConfig = {
 }
 ```
 
-<<<<<<< HEAD
+
 使用占位符，如果文件内容发生了改变，文件就会生成不同的hash值，从而改变文件命名导致不同，让浏览器加载。
 
 
@@ -1873,7 +1873,3 @@ module.exports = (env) => {
 - `dev`： 使用开发环境配置打包，并通过`webpack-dev-server`启动一个服务器方便调试。
 - `dev-build`：使用开发环境配置打包，但是不通过`webpack-dev-server`启动服务器，因为通过`webpack-dev-server`启动服务器打包的文件不生成在输出目录，而是保存在内存中，不方便我们查看，
 - `build`：使用线上环境配置打包，会开启代码压缩等一系列优化的方式。
-
-=======
-使用占位符，如果文件内容发生了改变，文件就会生成不同的hash值，从而改变文件命名导致不同，从而让浏览器加载。
->>>>>>> 65cb92cb5959e75cae0b5ac58b63b141795ad0a7

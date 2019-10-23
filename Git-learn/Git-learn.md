@@ -5,7 +5,7 @@
 要弄清楚什么是版本工具，就要弄清楚一个问题： 我们平时都是怎样去管理我们的文件版本的。
 假如我们在工作中需要写一份文件，如下：
 
-![各种文件版本](./images/various-version.png)
+![各种文件版本](https://mexion.xyz/images/study-notes/Git-learn/various-version.png)
 
 我们先完成第一个版本，在一段时间之后会写第二个版本，但是我们在写第二个版本时不想去删除第一个版本，这时我们会复制第一个版本并重命名为第二个版本，在第二个版本的基础上修改我们的内容，之后我们会以同样的方式去修改文件，这就会出现N个版本。
 
@@ -17,7 +17,7 @@
 
 要解决这些问题，就出现了`版本管理`的工具，如CVS，SVN以及Git等，版本管理工具如下：
 
-![版本管理](./images/version-manage.png)
+![版本管理](https://mexion.xyz/images/study-notes/Git-learn/version-manage.png)
 
 我们每一次提交都会被记录下来，生成不同的版本，我们可以清楚的看到修改的时间，修改的内容，也可以找回历史提交的版本，同时可以确保团队做到更好的协同。
 
@@ -61,7 +61,7 @@ Git就是一种分布式版本管理工具。
 
 下面是Git的工作流：
 
-![Git工作流](./images/Git-workflow.png)
+![Git工作流](https://mexion.xyz/images/study-notes/Git-learn/Git-workflow.png)
 
 git的工作流程一般是这样的：
 
@@ -164,7 +164,7 @@ git push
 ## 5. Pull Request团队协作
 下图是一个完整的团队协作流程： 
 
-![团队协作流程](./images/teamwork-process.png)
+![团队协作流程](https://mexion.xyz/images/study-notes/Git-learn/teamwork-process.png)
 
 任务启动时会由Team Leader去创建线上仓库，程序员A和B就可以去远程仓库Fork一份到自己的仓库中来，这时两名程序员就可以独立地完成自己的任务，A在完成之后会将代码以Pull Request的形式提交到远程仓库中，这时Team Leader就会接收到PR通知，检查A的PR代码没问题之后，会将A的代码合并到仓库之中。过了一段时间程序员B也开发结束，同样会提交一个PR，TL接收到PR通知检查PR，但是可能两个人操作代码时会修改一些同名的文件会产生一些代码冲突，这时候会由TL去检查B的PR发现冲突的代码，把冲突的代码解决，解决之后才会将B的代码合并到远程仓库之中。这时假如功能开发完成，这时需要对代码进行一定的分支管理，分成一个master分支和一个release分支，release分支用来发布一个线上版，master分支用于管理后续的开发任务。
 
@@ -194,7 +194,7 @@ git push
 
 下面是一张展示使用分支工作的流程图：
 
-![分支工作流](./images/branch-workflow.png)
+![分支工作流](https://mexion.xyz/images/study-notes/Git-learn/branch-workflow.png)
 
 分支是用来将特性开发绝缘开来的。在你创建仓库的时候，*master* 是“默认的”。在其他分支上进行开发，完成后再将它们合并到主分支上。
 
@@ -225,7 +225,7 @@ git push
 
 ## 7.1 什么是标签
 
-![各种文件版本](./images/various-version.png)
+![各种文件版本](https://mexion.xyz/images/study-notes/Git-learn/various-version.png)
 
 和这张图类似，我们在完成某一个版本时，会给这个版本标注一个特别的名字，比如一二三版完成版等。在Git中也是一样，我们可以给某一个版本打上特定的标签，表明是什么版本（比如v1.0)。
 
@@ -250,7 +250,7 @@ git push
 
 我们可以使用`git log`命令简单将我们所有的提交记录打印出来，具体如下：
 
-![提交历史](./images/commit-record.png)
+![提交历史](https://mexion.xyz/images/study-notes/Git-learn/commit-record.png)
 
 ## 9. 使用Git的一些小方法
 
@@ -258,7 +258,7 @@ git push
 
 刚提交了一个代码，发现有几个字写错了该怎么处理？
 
-![错别字](./images/typo.png)
+![错别字](https://mexion.xyz/images/study-notes/Git-learn/typo.png)
 
 当场再写一个修复这几个错别字的 commit ？可以是可以，不过还有一个更加优雅和简单的解决方法： `commit --amend` 。“amend” 是「修正」的意思。在提交时，如果加上 `--amend` 参数，Git 不会在当前 commit 上增加 commit ，而是会把当前 commit 里的内容和暂存区里的内容合并起来后创建一个新的 commit ，用这个新的 commit 把当前 commit 替换掉。所以 `commit --amend` 做的事就是它的字面意思：对最新一条 commit 进行修正。具体地，对于上面这个错误，你就可以把文件中的错别字修改好之后，输入：
 
@@ -267,6 +267,6 @@ git add 笑声.txt
 git commit --amend
 ```
 
-![提交信息编辑界面](./images/edit-interface.png)
+![提交信息编辑界面](https://mexion.xyz/images/study-notes/Git-learn/edit-interface.png)
 
 Git 会把你带到提交信息编辑界面。可以看到，提交信息默认是当前提交的提交信息。你可以修改或者保留它，然后保存退出。然后，你的最新 commit 就被更新了。要注意的有一点： `commit --amend` 并不是直接修改原 commit 的内容，而是生成一条新的 commit 。

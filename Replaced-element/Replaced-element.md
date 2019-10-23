@@ -4,7 +4,7 @@
 
 我们都知道`<img>`标签是一个行内元素，通常而言，行内元素是不能设置宽高的，但是当我们尝试为`<img>`设置宽高时，却意外地发现它是能够成功设置宽高的，如下图：
 
-![可替换元素-img](./images/replaced-element.png)
+![可替换元素-img](https://mexion.xyz//images/study-notes/Replaced-element/replaced-element.png)
 
 这是为什么呢？
 

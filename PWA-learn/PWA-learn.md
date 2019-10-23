@@ -138,7 +138,7 @@ Notification API可以给予`Web APP`推送通知的能力，即使用户关闭�
 
 网站的默认`permission`是`default`，可以在页面上下文中使用Notification.requestPermission方法（不能在sw上下文中使用）在浏览器界面上产生一个允许通知的请求视窗，让使用者允许Web App可以启用通知功能。
 
-![通知请求](./images/request-notification.png)
+![通知请求](https://mexion.xyz//images/study-notes/PWA-learn/request-notification.png)
 
 当用户点击允许，我们就可以向用户推送通知了，在页面上下文中可以new一个`Notification`来推送通知，Notification接收两个参数，第一个参数是通知的标题，第二个参数是一个对象，为通知的配置属性，具体可以配置的参数详见[`Notification()`](https://developer.mozilla.org/zh-CN/docs/Web/API/Notification/Notification)。
 
@@ -148,7 +148,7 @@ new Notification('Hello Notification', {
 })
 ```
 
-![弹出通知](./images/Notification.png)
+![弹出通知](https://mexion.xyz//images/study-notes/PWA-learn/Notification.png)
 
 而在sw的上下文中不能通过构造函数来弹出通知，需要使用`self.registration.showNotification(title, option)`来弹出通知。
 

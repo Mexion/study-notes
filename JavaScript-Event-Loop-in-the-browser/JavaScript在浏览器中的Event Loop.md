@@ -20,7 +20,7 @@
 
 以`Chrome`为例，每一个Tab标签就是一个进程，当我们打开多个页面时，查看任务管理器会发现有多个Chrome的进程，所以Chrome是多进程的。
 
-![](./images/multi-progress.jpg)
+![](https://mexion.xyz/images/study-notes/JavaScript-Event-Loop-in-the-browser/multi-progress.jpg)
 
 Chrome还有其他的进程，但对于前端来说，主要需要了解的就是渲染进程。渲染进程是多线程的，一个渲染进程包含了以下线程：
 
