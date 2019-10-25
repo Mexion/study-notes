@@ -746,3 +746,261 @@ console.log(add8('a', 'b', 'c'))	//输出 abc
 
 `TypeScript`实现重载实际上是根据我们定义的**`重载列表`**，也就是我们上面定义的两个函数类型，会根据传参依次匹配每个定义，直到匹配成功使用匹配的函数定义，所以在定义重载的时候，一定要把最精确的定义放在最前面。注意最后的函数实现不是重载的一部分，重载列表只有上面定义的两个，一个接收`Number`类型的数组，一个接收`String`类型的数组。
 
+#### 类
+
+在`ES6`之后，我们可以像传统的面向对象的语言一样使用`class`去创建一个类了。`TypeScript`中的类覆盖了`JavaScript`中的类，同时也引入了一些其他特性。
+
+##### 类的实现
+
+这是一个基本的`TypeScript`类：
+
+```typescript
+class Dog {
+    constructor(name: string) {
+        this.name = name
+    }
+    name: string
+    run() {}
+}
+```
+
+这里定义了一个`Dog`类，和`JavaScript`不同在于我们为属性和参数增加了类型注解，构造器`constructor`的返回值会自动推断为`Dog`，也就是这个类本身，方法`run`没有指定返回值，它的返回值默认为`void`。
+
+主要注意的是，在类中定义的属性都是实例属性，在类中定义的方法都是原型方法：
+
+```typescript
+class Dog {
+    constructor(name: string) {
+        this.name = name
+    }
+    name: string
+    run() { }
+}
+
+const dog = new Dog('ergou')
+
+console.log(Dog.prototype)	// {run: ƒ, constructor: ƒ}
+console.log(dog)	// Dog {name: "ergou"}
+```
+
+另外，在`TypeScript`中，实例的属性必须具有初始值，或者在构造函数中被初始化，或者将属性设置为可选属性：
+
+```typescript
+class Dog {
+    constructor(name: string) {
+        //如果像这样注释掉会报错，因为name没有初始值
+        //this.name = name
+    }
+    name: string	//或者在这里直接赋初始值 || 或在这个属性后加？表示可选
+    run() { }
+}
+```
+
+##### 类的继承
+
+我们在此基础上先定义一个`Dog`的子类`Shiba`：
+
+```typescript
+class Shiba extends Dog {
+    constructor(name: String, color: string) {
+        super(name)
+        this.color = color
+    }
+    color: string
+}
+```
+
+可以看到，我们使用`extends`关键字来继承父类，同时我们在构造函数中调用了`super函数`，`ES6` 要求，子类的构造函数必须调用一次 `super() 函数`。
+
+注意：super 作为函数调用时，代表父类的构造函数。作为函数时，super() 只能用在子类的构造函数之中，用在其他地方就会报错。super 作为函数调用时，内部的 this 指的是子类实例；super 作为对象时，在普通方法中，指向父类的原型对象；在静态方法中，指向父类。
+
+然后我们可以给子类添加自己的属性，比如这里增加了一个`color`，同时必须赋初始值，我们定义了一个参数`color`，并在构造函数中为属性赋值。注意如果需要调用`this`，则一定要在`super`之后再调用。
+
+##### 成员修饰符
+
+成员修饰符是`TypeScript`对`JavaScript`的一个拓展。
+
+修饰符有几种：
+
+- `public`，即`公有成员`，类的所有属性默认都是`public`，意味着这些属性对所有人都是可见的
+- `private`，即`私有成员`，它表明这个成员只能在这个类本身被调用，而不能被实例调用，也不能被子类调用
+- `protected`，即`受保护成员`，它表明这个成员只能在类自身和子类被访问，而不能在类的实例中访问
+- `readonly`，即`只读属性`，只能用在属性（非方法）之前，表明这个属性是只读的，只读属性一定要被初始化
+- `static`，即`静态成员`，静态成员只能通过类名（包括子类）来调用，而不能通过实例调用
+
+```typescript
+class Dog {
+    constructor(name: string) {
+        this.name = name
+    }
+    name: string
+    run() { }
+    private pri() {}
+    protected pro() {}
+    readonly legs: number = 4
+    static food: string = 'bones'
+}
+
+const dog = new Dog('ergou')
+//报错，实例不能调用私有成员
+dog.pril()
+//报错，实例不能调用受保护成员
+dog.pro()
+
+class Shiba extends Dog {
+    constructor(name: String, color: string) {
+        super(name)
+        this.color = color
+        //报错，子类不能调用私有成员
+        this.pri()
+        //可以调用，子类可以调用受保护成员
+        this.pro()
+    }
+    color: string
+}
+```
+
+
+
+我们也可以给构造函数加上私有成员修饰符，这表明它不能被实例化，也不能被继承。
+
+也可以给构造函数加上受保护成员修饰符，这表明这个类只能被继承而不能被实例化，相当于盛行了一个`基类`。
+
+
+
+除了类的成员可以添加修饰符以外，构造函数的参数也可以添加修饰符，它的作用在于将参数自动变为实例的属性，这样就可以省略在类中的定义了，比如：
+
+```typescript
+class Shiba extends Dog {
+    constructor(name: String, public color: string) {
+        super(name)
+        this.color = color
+    }
+    //可以注释掉了，参数已经加了修饰符，会自动将参数变为属性
+    //color: string
+}
+```
+
+##### 抽象类
+
+`JavaScript`中没有`抽象类`的概念，`抽象类`是`TypeScript`对`ES`的拓展。
+
+**抽象类，就是只能被继承，而不能被实例化的类。**
+
+在之前的基础上，我们创建一个抽象类`Animal`： 
+
+```typescript
+abstract class Animal {
+    eat() {
+        console.log('eat')
+    }
+}
+
+//报错，不能实例化
+let animal = new Animal()
+
+class Dog extends Animal {
+    constructor(name: string) {
+        super()
+        this.name = name
+    }
+    name: string
+    run() { }
+}
+let dog = new Dog('erha')
+dog.eat()	//eat
+```
+
+我们用`Dog`类去继承这个抽象类，然后用`Dog`的实例去调用这个抽象类的方法，发现是可以成功调用的。
+
+在抽象类中也可以不指定方法的具体实现，这就构成了一个抽象方法，具体实现如下：
+
+```typescript
+abstract class Animal {
+    eat() {
+        console.log('eat')
+    }
+    //定义了一个抽象方法，没有具体实现
+    abstract sleep(): void
+}
+
+//报错，不能实例化
+let animal = new Animal()
+
+class Dog extends Animal {
+    constructor(name: string) {
+        super()
+        this.name = name
+    }
+    name: string
+    run() { }
+    //在子类中具体实现
+    sleep() {
+        console.log('dog sleep')
+    }
+}
+let dog = new Dog('erha')
+dog.eat()	//eat
+```
+
+抽象类的好处就是可以抽离出一些事物的共性，有利于代码复用和扩展，另外，抽象类可以实现`多态`。所谓多态就是在父类中定义一个抽象方法，在每个子类中进行具体的不同实现。
+
+我们可以具体实现以下多态，我们再定义一个类来继承抽象类`Animal`：
+
+```typescript
+class Cat extends Animal {
+    sleep() {
+        console.log('cat sleep')
+    }
+}
+
+let cat = new Cat()
+let animals: Animal[] = [dog, cat]
+animals.forEach(animal => {
+    animal.sleep()
+})
+//输出 dog sleep 和 cat sleep
+```
+
+
+
+##### this类型
+
+类的成员方法可以直接返回一个`this`，这样就可以方便地实现`链式调用`。
+
+```typescript
+class Workflow {
+    step1() {
+        return this
+    }
+    step2() {
+        return this
+    }
+}
+
+new Workflow().step1().step2()
+```
+
+在继承时，`this类型`可以表现出多态（this是可变的，既可以是父类型也可以是子类型）：
+
+```typescript
+class Workflow {
+    step1() {
+        return this
+    }
+    step2() {
+        return this
+    }
+}
+
+class Myflow extends Workflow {
+    next() {
+        return this
+    }
+}
+
+new Myflow().next().step1().next().step2()	//可以链式调用，返回的this为Myflow实例
+```
+
+这里的`this`其实与`JavaScript`表现一致。
+
