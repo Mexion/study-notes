@@ -1004,3 +1004,257 @@ new Myflow().next().step1().next().step2()	//可以链式调用，返回的this�
 
 这里的`this`其实与`JavaScript`表现一致。
 
+##### 类和接口的关系
+
+这是一个`类类型接口`，这个接口约束了一个类的属性和类型：
+
+```typescript
+interface Human {
+    name: string
+    eat(): void
+}
+
+class Asian implements Human {
+    constructor(name: string) {
+        this.name = name
+    }
+    name: string
+    eat() {}
+}
+```
+
+我们定义了一个类`Asian`去实现了这个接口，类实现接口要使用`implements`关键字，实现时必须要实现接口中所有的属性，类实现接口后增加自己的属性或方法是可以的。
+
+接口只能约束类的共有成员，另外，接口也不能约束类的构造函数。
+
+##### 接口的继承
+
+接口可以像类一样相互继承，并且一个接口可以继承多个接口：
+
+```typescript
+interface Man extends Human {
+    run(): void
+}
+
+interface Child {
+    cry(): void
+}
+    
+interface Boy extends Man, Child {}
+    
+let boy: Boy = {
+    name: 'lala',
+    run() {},
+    eat() {},
+    cry() {}
+}
+```
+
+继承多个接口需要使用逗号`,`分隔。
+
+接口除了可以继承接口之外，还可以继承类，相当于接口把类的成员都抽象出来：
+
+```typescript
+class Auto {
+    state = 1
+}
+
+interface AutoInterface extends Auto {}
+
+class C implements AutoInterface {
+    state = 1
+}
+
+//Auto子类继承接口
+class Bus extends Auto implements AutoInterface {}
+```
+
+#### 泛型
+
+很多时候，我们希望一个类或者一个函数能够支持多种数据类型，而不是固定的类型，这该怎么实现呢？`泛型`就是为了解决这个问题而出现的。
+
+##### 泛型函数
+
+假如没有泛型：
+
+```typescript
+//这是一个打印函数
+function log(value: string): string {
+    console.log(value)
+    return value
+}
+//这个函数接收一个字符串，打印这个字符串并返回这个字符串
+```
+
+如果我们修改了需求，在此基础之上我们希望可以它可以接受一个字符串数组，这时可以通过以下几种方式来实现：
+
+```typescript
+function log(value: string): string
+function log(value: string[]): string[]
+function log(value: any) {
+    console.log(value)
+    return value
+}
+//或者使用联合类型
+function log(value: string | string[]): string | string[] {
+    console.log(value)
+    return value
+}
+
+```
+
+如果再次更改需求，希望这个函数可以接收任意类型的参数：
+
+```typescript
+//直接使用any类型
+function log(value: any) {
+    console.log(value)
+    return value
+}
+```
+
+但是问题来了，这样修改之后我们丢失了对类型的约束，使用any相当于我们直接使用了`JavaScript`，同时，这样也使函数参数的类型和返回值的类型无法保持一致。
+
+现在，使用`泛型`就可以解决这样的问题，什么是泛型？
+
+> 泛型： 不预先确定数据类型，具体是什么类型在使用时确定。
+
+我们现在改造一下上面写的`log`函数：
+
+```typescript
+function log<T>(value: T): T {
+    console.log(value)
+    return value
+}
+```
+
+可以看到我们在圆括号前新增了一对尖括号，并在里面定义了一个`T`，这个`T`就是泛型，我们将参数的类型和返回值全部定义为`T`，这个`T`只是一个代表名称，具体是什么类型由我们在使用时指定，这样就可以做到类型一致，并且可以传递任何类型。
+
+如何调用这个函数呢？
+
+```typescript
+//第一种，调用时直接指定类型，比如这里指定类型为string数组
+log<string[]>(["a","b"])
+//第二种，使用类型推断，直接调用，不指定类型(推荐)
+log(["a", "b"])
+```
+
+##### 泛型函数类型
+
+不仅可以用泛型来定义一个函数，也可以定义一个函数类型：
+
+```typescript
+type Log = <T>(value: T) => T
+
+let myLog: Log = log
+```
+
+##### 泛型接口
+
+泛型同样可以用在接口中:
+
+```typescript
+interface Log {
+    <T>(value: T): T
+}
+```
+
+这个定义的泛型接口和上面类型别名定义的函数的方式等价。
+
+泛型不仅可以约束函数，也可以约束接口的其他成员，方法为将泛型放在接口名称后面：
+
+```typescript
+//这样接口的所有属性都会受到泛型的约束
+interface Log<T> {
+    (value: T): T
+}
+//在实现时也必须指定类型
+//这样myLog只能接受数字
+let myLog: Log<number> = log
+```
+
+如果不指定类型，我们可以指定接口的定义中，为泛型指定一个默认类型：
+
+```typescript
+interface Log<T = string> {
+    (value: T): T
+}
+
+let myLog: Log = log
+myLog("1")
+```
+
+##### 泛型类
+
+泛型也可以约束类的成员：
+
+```typescript
+//把泛型放在类名称之后，就可以约束所有成员
+class Log<T> {
+    run(value: T) {
+        console.log(value)
+        return value
+    }
+}
+```
+
+需要注意的是，`泛型`不能应用于类的静态成员：
+
+```typescript
+class Log<T> {
+    //会报错，静态成员不能引用类型参数
+    static run(value: T) {
+        console.log(value)
+        return value
+    }
+}
+```
+
+实例化时我们可以显式传入`T`的类型：
+
+```typescript
+let log1 = new Log<number>()
+log1.run(123)	//只能传入number
+```
+
+如果不显式指定类型，那么可以传入任意类型的值：
+
+```typescript
+let log2 = new Log()
+log2.run("1")
+log2.run(1)
+```
+
+##### 泛型约束
+
+我们在打印时，不仅希望打印参数，也希望可以打印参数的某个值，比如例子中的`length`：
+
+```typescript
+function log<T>(value: T): T {
+    //会报错，T类型上不存在length属性
+    console.log(value, value.length)
+    return value
+}
+```
+
+这时候就要用到泛型约束这个概念。
+
+我们要先预定义一个接口，这个接口有一个`length`属性，然后我们让`T`去继承这个接口：
+
+```typescript
+interface Length {
+    length: number
+}
+
+function log<T extends Length>(value: T): T {
+    console.log(value, value.length)
+    return value
+}
+//数组和字符串都有length属性，传入指定对象也可以
+log([1,2,3])
+log(“你好”)
+log({length: 2})
+```
+
+这样就可以通过类型检查，`T`继承了`Length`接口，就表示`T`受到了约束，不再是任何类型都可以传了，而是必须拥有`length`属性。
+
