@@ -1258,3 +1258,410 @@ log({length: 2})
 
 这样就可以通过类型检查，`T`继承了`Length`接口，就表示`T`受到了约束，不再是任何类型都可以传了，而是必须拥有`length`属性。
 
+#### 类型检查机制
+
+> 类型检查机制： TypeScript 编译器在做类型检查时，所秉承的一些原则，以及表现出的一些行为，以辅助开发、提高开发效率。
+
+`TypeScript`的类型检查机制体现在：
+
+- 类型推断
+- 类型兼容
+- 类型保护
+
+
+
+##### 类型推断
+
+**类型推断使我们可以不指定变量的类型，`TypeScript`会根据某些规则自动推断类型。**
+
+```typescript
+//基础类型推断
+
+//定义变量时不指定类型，会自动推断为any类型
+let a	//any类型
+//赋了初始值，那么自动推断为这个值的类型
+let a = 1	//number类型
+let a = []	//类型为 any[]
+let a = [1]	//类型为 number[]
+//在为函数设置默认参数时也会自动推断
+let func = (x = 1) => x + 1		//会推断X和返回值都为number类型
+
+
+//最佳通用类型推断
+
+//当需要从多个类型中推断出类型的时候，TS会尽可能推断一个兼容所有类型的通用类型
+let b = [1, null]	//由于null和1互不兼容，所以会推断为 (number | null)[]
+
+//上下文推断
+
+//从左到右进行推断，比如事件处理
+window.onkeydown = (e) => {}	//这会根据事件推断e为KeyboardEvent类型
+```
+
+
+
+**有时候可能`TS`的类型推断不符合你的预期，并且你认为你对变量的类型完全了解，那么你可以通过`类型断言`来断言变量的类型。**
+
+```typescript
+let foo = {}
+//会报错，提示foo的类型{}上没有bar这个属性
+foo.bar = 1
+
+//通过类型断言来断言这个类型
+//先定义一个接口
+interface Foo {
+    bar: number
+}
+//进行断言，断言为Foo类型
+let foo = {} as Foo
+foo.bar = 1
+```
+
+但是类型断言不能滥用，不然可能出现意想不到的错误。
+
+所以推荐在定义时就指定类型，而不是使用类型断言来断言：
+
+```typescript
+interface Foo {
+    bar: number
+}
+
+let foo: Foo = {}
+foo.bar = 1
+```
+
+
+
+##### 类型兼容
+
+什么是类型兼容？
+
+**当一个类型Y可以被赋值给另一个类型X时，我们就可以说类型X兼容类型Y。**
+
+```typescript
+interface X {
+    a: any
+    b: any
+}
+
+interface Y {
+    a:any
+    b: any
+    c: any
+}
+
+let x: X = {a: 1, b: 2}
+let y: Y = {a: 1, b: 2, c: 3}
+//可以赋值，因为x兼容y
+x = y
+//报错，y不兼容x
+y = x
+```
+
+可以看到，只要一个接口的属性完全满足另一个接口的属性（即使另一个接口有额外属性），那么这个接口就兼容另一个接口，在这个例子中`X`完全满足`Y`，所以`X`兼容`Y`，这也体现了“鸭式辨型法”这个原则。
+
+接下来是函数兼容性，函数兼容性一般发生在函数赋值或者函数作为参数传递的情况下：
+
+```typescript
+type Handler = {a: number, b: number} => void
+function hof(handler: Handler) {
+    return handler
+}
+//要做到函数类型兼容有以下几种情况
+//1) 目标函数类型要多于兼容函数类型的参数个数（多的不能传给少的）
+let handler1(a: number) => {}
+//可以传入hof，因为handle1参数个数比Handler类型少，所以兼容Handler
+hof(handler1)
+
+let handler2(a: number, b: number, c: number) => {}
+//不能传入hof，因为handle2参数比Handler类型多，不兼容Handler
+hof(handler2)
+
+//其次是可选参数和剩余参数的情况(多的不能传给少的)
+let a =(p1: number, p2: number) => {}
+let b = {p1?: number, p2?: number} => {}
+let c = (...args: number[]) => {}
+//可以赋值，固定参数兼容可选参数和剩余参数
+a = b
+a = c
+//报错，可选参数不兼容剩余参数
+b = c
+//报错，可选参数不兼容固定参数
+b = a
+//可以赋值，剩余参数可以兼容可选参数和固定参数
+c = a
+c = b
+
+//2)参数类型必须要匹配才能兼容
+let handler3 = (a: string) => {}
+//会报错，类型不匹配
+hof(handler3)
+
+interface Point3D {
+    x: number,
+    y: number,
+    z: number
+}
+
+interface Point2D {
+    x: number
+    y: number
+}
+
+let p3d = (point: Point3D) => {}
+let p2d = (point: Point2D) => {}
+//可以赋值，参数少的可以赋值给参数多的
+p3d = p2d
+//报错，参数多的不能赋值给参数少的
+p2d = p3d
+
+//3)返回值类型（成员少的兼容成员多的）（可以参照鸭式辨型法）
+let f = () => ({name: 'Alice'})
+let g = () => ({name: 'Alice', location: 'Beijing'})
+//可以赋值，f的返回值是g返回值的子类型
+f = g
+//报错
+g = f
+
+//函数重载
+function overload(a: number, b: number): number
+function overload(a: string, b: string): string
+function overload(a: any, b: any): any {}
+//实现函数要比重载列表的函数的参数少，并且参数和返回值类型要兼容重载列表的参数和返回值类型
+
+```
+
+然后是的枚举兼容性：
+
+```typescript
+//首先数字枚举和数值类型是兼容的
+enum Fruit{ Apple, Banana }
+enum Color{ Red, Yellow }
+//可以赋值，数字枚举和数值完全兼容
+let fruit: Fruit.Apple = 3
+let num: number = Fruit.Apple
+
+//但是枚举之间是完全不兼容的
+//报错，枚举之间完全不兼容
+let color: Color.Red = Fruit.Apple
+```
+
+类兼容性：
+
+```typescript
+//类之间兼容是只比较结构
+//需要注意的是： 静态成员和构造函数是不参与比较的
+class A {
+    constructor(p: number, q: number) {}
+    id: number = 1
+}
+
+class B {
+    static s = 1
+    constructor(p: number) {}
+    id: number = 2
+}
+
+let aa = new A(1,2)
+let bb = new B(1)
+
+//两个实例完全兼容，因为不比较构造函数和静态成员，他们都有共同的实例属性
+aa == bb
+bb == aa
+
+//如果一个类中有私有成员（private），那么他们是不兼容的，但是它子类的实例和父类实例兼容
+class A {
+    constructor(p: number, q: number) {}
+    id: number = 1
+    private name: string = 'aaa'
+}
+
+class B {
+    static s = 1
+    constructor(p: number) {}
+    id: number = 2
+    private name: string = 'bbb'
+}
+
+let aa = new A(1,2)
+let bb = new B(1)
+//报错，私有成员不兼容
+aa = bb
+bb == aa
+
+class C extends A {}
+let cc = new C(1,2)
+//可以相互兼容
+aa = cc
+cc = aa
+```
+
+最后是泛型兼容性：
+
+```typescript
+//当泛型接口没有成员时两者兼容
+interface Empty<T> {
+    
+}
+let obj1: Empty<number> = {}
+let obj2: Empty<string> = {}
+obj1 = obj2
+//有成员时不兼容
+interface Empty<T> {
+    
+}
+let obj1: Empty<number> = {}
+let obj2: Empty<string> = {}
+//报错
+obj1 = obj2
+
+
+//泛型函数
+//这里定义了两个完全相同的泛型函数
+let  log1 = <T>(x: T): T => {
+    console.log('x')
+    return x
+}
+let log2 = <U>(y: U): U => {
+    console.log('y')
+    return y
+}
+//可以赋值，两者兼容
+log1 = log2
+```
+
+
+
+**最后的总结：**
+
+- **结构之间兼容： 成员少的兼容成员多的（属性多的可以赋值给属性少的）**
+
+- **函数之间兼容： 参数多的兼容参数少的（参数少的可以赋值给参数多的）**
+
+
+
+##### 类型保护
+
+> 类型保护： `TypeScript`能够在特定的区块中保证变量属于某种确定的类型。可以在此区块中放心引用此类型的属性或者调用此类型的方法。
+
+这是一点`TS`代码，这里定义了一个枚举和两个类一个函数，运行这个函数时如果判断到类型是强类型就生成一个`Java实例`，否则生成一个`JavaScript实例`，并且运行他们的打印方法，假如没有类型保护：
+
+```typescript
+enum Type { Strong, Week }
+
+class Java {
+    helloJava() {
+        console.log('Hello Java')
+    }
+}
+
+class JavaScript {
+    helloJavaScript() {
+        console.log('Hello JavaScript')
+    }
+}
+
+function getLanguage(type: Type) {
+    let lang = type === Type.Strong ? new Java() : new JavaScript()
+    //报错，提示Java | JavaScript类型上没有helloJava这个方法
+    if(lang.helloJava) {
+        //报错
+        lang.helloJava()
+    } else {
+        //报错
+        lang.helloJavaScript()
+    }
+    return lang
+}
+
+```
+
+因为这时`TypeScript`会判断`lang`的类型为`Java`和`JavaScript`的联合类型，但是因为我们传入的类型不确定，所以它不能判断具体是哪一种类型，如果我们使用`as`为每个报错的地方都加上类型断言，虽然可以解决问题，但是过于繁琐，并且代码变得臃肿和难以阅读。
+
+而类型保护机制就是为了解决这个问题，它可以对类型提前做出预判，生成类型保护区块具体有以下几种方法：
+
+```typescript
+//1)使用 instanceof 关键字 (可以判断某个实例是不是属于某个类)
+//改造代码如下：
+function getLanguage(type: Type) {
+    let lang = type === Type.Strong ? new Java() : new JavaScript()
+    if(lang instanceof Java) {
+        //这个区块就是类型保护区块，TS可以确定在这个区块中lang一定为Java类
+        lang.helloJava()
+    } else {
+        //在这个区块中一定是JavaScript的实例
+        lang.helloJavaScript()
+    }
+    return lang
+}
+
+getLanguage(Type.Strong)
+
+//2)使用 in 关键字 （可以判断某个属性是否存在于某个对象）
+//改造代码如下：
+class Java {
+    helloJava() {
+        console.log('Hello Java')
+    }
+    //在Java类中添加一个属性
+    java: any
+}
+
+class JavaScript {
+    helloJavaScript() {
+        console.log('Hello JavaScript')
+    }
+    //在JS类中添加一个属性
+    javascript: any
+}
+
+function getLanguage(type: Type) {
+    let lang = type === Type.Strong ? new Java() : new JavaScript()
+    if('java' in lang) {
+        //这个区块就是类型保护区块，TS可以确定在这个区块中lang一定为Java类的实例
+        lang.helloJava()
+    } else {
+        //在这个区块中一定是JavaScript的实例
+        lang.helloJavaScript()
+    }
+    return lang
+}
+
+//3) 使用 typeof 关键字 (可以判断基本类型)
+//代码如下：
+(function (p: string | number) {
+    if(typeof x === 'string') {
+        //这里面一定是string，那就一定会有length属性
+        x.length
+    } else {
+        //一定是number，一定会有toFixed方法
+        x.toFixed(2)
+    }
+})("hello")
+```
+
+同时我们也可以创建一个类型保护函数来创建类型保护：
+
+```typescript
+//先定义一个类型保护函数
+function isJava(lang: Java | JavaScript): lang is Java {
+    return (lang as Java).helloJava !== undefined
+}
+//可以看到函数可以传入一个联合类型参数，但是返回值为一个特殊的类型，这种类型我们通常称为`类型谓词`，语法为 （ 参数 is 类型 ）
+//然后我们在函数体中进行判断
+
+function getLanguage(type: Type) {
+    let lang = type === Type.Strong ? new Java() : new JavaScript()
+    if(isJava(lang)) {
+        //这个区块就是类型保护区块，TS可以确定在这个区块中lang一定为Java类的实例
+        lang.helloJava()
+    } else {
+        //在这个区块中一定是JavaScript的实例
+        lang.helloJavaScript()
+    }
+    return lang
+}
+```
+
+#### 高级类型
+
