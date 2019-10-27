@@ -1665,3 +1665,469 @@ function getLanguage(type: Type) {
 
 #### 高级类型
 
+##### 交叉类型
+
+**将多个类型合并为一个类型，这个合并的类型将具有所合并类型的所有特性。**
+
+```typescript
+interface DogInterface {
+    run(): void
+}
+interface CatInterface {
+    jump(): void
+}
+//使用 & 符号以生成交叉类型，这个类型将具有两个类型的所有属性。
+let pet: DogInterface & CatInterface = {
+    run() {},
+    jump() {}
+}
+
+```
+
+##### 联合类型
+
+**当类型并不确定，可以赋为多个类型中的任意一个，可以使用联合类型。**
+
+```typescript
+//string | number是一个联合类型
+//那么这个类型就可以赋值为string或者number
+type StringOrNum = string | number
+//可以看到初始赋值为number，改变为string也是可以的
+let a: StringOrNum = 1
+a = "hello"
+
+//字面量联合类型
+//1)字符串
+//有时我们不仅需要限定变量的类型，还要限定它的取值在一定范围内
+type StringType = '小红' | '小明'
+//可以赋值
+let nickName:StringType = '小红'
+nickName = '小明'
+//报错，‘芳’在 '小红'和'小明'两者范围内
+nickName = '小芳'
+
+//2)数字
+type NumType = 1 | 2
+//可以赋值
+let ANum: NumType = 1
+ANum = 2
+//报错，3不在两者范围内
+ANum = 3
+```
+
+##### 索引类型
+
+首先看没有索引类型的情况：
+
+```typescript
+let obj = {
+    a: 1,
+    b: 2,
+    c: 3
+}
+
+function getValues(obj: any, keys: string[]){
+    return keys.map(key => obj[key])
+}
+console.log(getValues(obj, ['a', 'b']))	// 输出 [1,2]
+console.log(getValues(obj, ['e', 'f']))	//输出 [undefined, undefined]
+```
+
+可以看到我们访问对象中没有的属性时，输出了两个`undefined`，而且并没有报错，这是我们不想遇到的情况，这时就可以使用`索引类型`来解决。
+
+首先要说两个概念：
+
+- `keyof`：索引类型查询操作符（index type query operator）
+- `T[K]`：索引访问操作符（indexed access operator）
+
+
+
+`keyof T`取类型`T`上的所有`public`**属性名**构成联合类型，例如：
+
+```typescript
+interface Obj {
+    a: number,
+    b: string
+}
+
+let key: keyof Obj	//类型 "a" | "b"
+```
+
+`T[K]`取`T`类型上`K`**属性**的类型：
+
+```typescript
+interface Obj {
+    a: number,
+    b: string
+}
+
+let value: Obj['a']	//类型 number
+```
+
+现在来改造下前面的例子：
+
+```typescript
+let obj = {
+    a: 1,
+    b: 2,
+    c: 3
+}
+
+function getValues<T, K extends keyof T >(obj: T, keys: K[]): T[K][]{
+    return keys.map(key => obj[key])
+}
+console.log(getValues(obj, ['a', 'b']))	// 输出 [1,2]
+//报错，不能将类型“string”分配给类型“"a" | "b" | "c"”
+console.log(getValues(obj, ['e', 'f']))	
+```
+
+可以看到，我们使用泛型约束了`obj`和`keys`，泛型`K`的类型取决于`T`类型的索引类型，`keyof`关键字会将`T`类型上的所有`key`构成联合类型，函数的返回值是一个由`T[K]`类型组成的数组。
+
+然后我们将`obj`传入，`T`的类型即为`obj`的类型`{a: number, b: number, c: number}`，`K`的类型则为`T`的`key`组成的联合类型`'a' | 'b' | 'c'`，这也意味着`keys`的成员类型只能为`obj`的`key`，`e`、`f`不是`obj`的`key`，故报错。
+
+##### 映射类型
+
+> 映射类型是一种从旧类型中创建新类型的方式。 
+
+假如要把一个接口的属性全部变为只读，可以这样实现：
+
+```typescript
+interface Obj {
+    a: string
+    b: number
+    c: boolean
+}
+
+//这时ReadonlyObj的类型将为以Obj为基础的，将属性全改为只读的类型
+//Readonly为TS内置的泛型接口
+type ReadonlyObj = Readonly<Obj>
+```
+
+这个泛型接口的定义方式如下：
+
+```typescript
+type Readonly<T> = {
+    readonly [P in keyof T]: T[P]
+};
+```
+
+可以看到这个泛型接口接收一个`T`，然后在其中进行了对原成员的修改，在之前增加了`readonly`，
+
+`P in keyof T`这段实际上进行了一次`for ... in`操作，`keyof T`将获取到所有属性的联合类型，索引签名的返回值为`T[P]`，即使用索引访问操作符获取了`T`上`P`所指定的类型。
+
+还有把一个接口的属性变为可选的，可以这样操作：
+
+```typescript
+interface Obj {
+    a: string
+    b: number
+    c: boolean
+}
+type PartialObj = Partial<Obj>
+```
+
+实现方式如下：
+
+```typescript
+//TS 已经内置
+type Partial<T> = {
+    [P in keyof T]?: T[P]
+}
+```
+
+如果要将一个接口抽取出一个子集，可以这样操作：
+
+```typescript
+interface Obj {
+    a: string
+    b: number
+    c: boolean
+}
+
+type PickObj = Pick<Obj, 'a' | 'b'>
+
+//实现方式
+type Pick<T, K extends keyof T> = {
+    [P in K]: T[P];
+};
+```
+
+这时，`PickObj`将为`Pick`抽取出来的一个子集，只会包含`a`和`b`两个成员。
+
+还可以这样使用映射类型：
+
+```typescript
+interface Obj {
+    a: string
+    b: number
+    c: boolean
+}
+
+/*type RecordObj = {
+    x: Obj
+    y: Obj
+}*/
+type RecordObj = Record<'x' | 'y', Obj>
+
+//实现方式
+type Record<K extends keyof any, T> = {
+    [P in K]: T;
+};
+```
+
+这样`RecordObj`的成员由第一个参数所指定，而他们的类型有第二个参数所指定，这里为`Obj`。
+
+##### 条件类型
+
+> 条件类型是一种由条件表达式所决定的类型。
+
+他的形态为`T extends U ? X : Y`，这里的意思是假如`T extends U（T可以赋值给U）`那么类型为`X`，否则为`Y`，其实就是一个三元表达式。
+
+下面是一个例子： 
+
+```typescript
+//这里使用了三元表达式的多重判断，三元表打死会依次判断以匹配返回不同的字符串
+type TypeName<T> =
+	T extends string ? "string":
+    T extends number ? "number":
+    T extends boolean ? "boolean":
+    T extends undefined ? "undefined":
+    T extends Function ? "function":
+    "object"
+
+type T1 = TypeName<string>	// "string"
+type T2 = TypeName<string[]>	// "object"
+type T3 = TypeName<undefined>	// "undefined"
+type T4 = TypeName<null>	// "object"
+
+//分布式条件类型
+形态为(A | B | C) extends U ? X : Y
+//等价于
+(A extends U ? X : Y) | (B extends U ? X : Y) | (C extends U ? X : Y)
+
+type T5 = TypeName<string | string[]>	// "string" | "object"
+```
+
+利用这个特性，我们来写一个过滤类型：
+
+```typescript
+type Diff<T, U> = T extends U ? never : T
+type T6 = Diff<'a' | 'b' | 'c', 'a' | 'e'>	// "b" | "c"
+```
+
+这个类型可以将`T`中可以赋值给`U`的类型给过滤掉，我们来拆解一下：
+
+```typescript
+//T6可以等价为
+Diff<'a', 'a' | 'e'> | Diff<'b', 'a' | 'e'> | <'c', 'a' | 'e'>
+//结果为
+ //never | "b" | "c"
+//never会被忽略掉，最后结果为
+//"b" | "c"
+
+```
+
+我们也可以利用`Diff`将`null`和`undefined`给过滤掉：
+
+```typescript
+type NotNull<T> = Diff<T, undefined | null>
+type T7 = NotNull<string | number | undefined | null>	// string | number
+```
+
+其实这两个类型`TypeScript`已经内置定义好了，`Diff`在官方定义中为`Exclude<T, U>`， `NotNull`在官方定义中为`NomNullable<T>`，平时用到直接调用官方的即可。
+
+官方还定义了一些其他的条件类型，比如：
+
+- `Extract<T, U>`，这与`Exclude`相反，它可以将`T`可以赋值给`U`的类型抽取出来。
+- `ReturnType<T>`，可以获取一个函数返回值的类型。
+
+### TypeScript工程
+
+#### 模块系统
+
+`TypeScript`对`ES6`和`CommonJS`两种模块系统都有很好的支持，我们基本可以沿用以前的写法。但两者不要混用，如果出现混用两个模块之间会出现不兼容的情况。
+
+- 导出：`ES6`允许同时存在`export default`和`export`多个变量，而`CommonJS`只允许有一种形式的导出，其中一种会把另外一种覆盖掉。
+- 导入：`ES6`可以按需导入也可以全部导入，而`CommonJS`只能全部导入。
+
+如果在`ES6`模块中抛出数据，在非`ES6`模块中导入，就会出现问题。因此尽量不要混用不同的模块化系统。如果迫不得已，可以使用TS提供的兼容性语法：
+
+```
+`// 导出``export` `= a;``// 导入``import` `c4 = require(``'../es6/c'``);``/*``1.如果使用以上方法导出，此文件不允许有其它形式的导出``2.以上形式的导出的数据，不仅可以用以上语法导入，还可以用es6的方式导入。前提是tsconfig.json中的"esModuleInterop"：true配置项要开启。``*/`
+```
+
+#### 命名空间
+
+在`JavaScript`中，命名空间可以有效地避免全局污染，但在`ES6`引入了模块系统之后，命名空间就很少被提及了，但是`TypeScript`依然实现了这个特性。如果使用了全局的类库，命名空间仍是一个好的解决方案。
+
+```typescript
+//使用namespace关键字定义了一个命名空间
+namespace Shape {
+    const p1 = Math.PI
+    //在里面用export导出需要的类、接口、变量、类型或者方法
+    export function cricle(r: number) {
+        return pi * r ** 2
+    }
+}
+```
+
+两个文件中同一名称的命名空间是共享的，命名空间的调用方法为：
+
+```typescript
+Shape.cricle(1)
+```
+
+可以看到这样每次使用都要加上命名空间的前缀，这时我们可以给一个别名：
+
+```typescript
+import cricle = Shape.cricle
+
+cricle(2)
+```
+
+**命名空间语法中的export和import和模块中的是不同的。**
+
+
+
+在一个文件中导入另一个文件中的命名空间，需要使用三斜杠：
+
+```typescript
+/// <reference path="a.ts"/>
+```
+
+需要注意的是**命名空间不要随意使用，不要在一个模块中使用命名空间，而最好在一个全局的环境中使用。**
+
+#### 声明合并
+
+>  `TypeScript`会把程序的多个地方具有相同名称的声明合并成一个，这样可以将散落在各处的重名声明合并在一起。
+
+##### 接口声明合并
+
+```typescript
+interface A {
+    x: number
+}
+interface A {
+    y: number
+}
+//声明合并，a必须具有两个分散接口的所有成员
+let a: A = {
+    x: 1,
+    y: 2
+}
+
+//如果两个分散接口中拥有同名属性，如果他们类型相同则不会报错，反之报错
+interface A {
+    x: number
+    y: string
+}
+interface A {
+    y: number
+}
+//报错，类型冲突
+let a: A = {
+    x: 1,
+    y: 2
+}
+
+//如果是函数成员发生重名，则会使用函数重载
+interface A {
+    x: number
+    foo(bar: number): number	//3
+}
+interface A {
+    y: number
+    foo(bar: string): string	//1
+    foo(bar: number[]): number[]	//2
+}
+
+let a: A = {
+    x: 1,
+    y: 2,
+    foo(bar: any) {
+        return bar
+    }
+}
+
+//那么函数重载列表的顺序是怎样的呢？
+//1)接口内部按定义顺序排列
+//2)接口之间后面的接口会排在前面
+//最后排序如上面的注释
+
+//但是也有例外
+//假如函数的参数是一个字符串字面量，这个函数声明就会提升到列表的最顶端
+//下面是一个例子，顺序如注释
+interface A {
+    x: number
+    foo(bar: number): number	//5
+    foo(bar: 'a'): number	//2
+}
+interface A {
+    y: number
+    foo(bar: string): string	//3
+    foo(bar: number[]): number[]	//4
+	foo(bar: 'b'): number	//1
+}
+
+```
+
+##### 命名空间和函数合并
+
+```typescript
+function Lib() {
+}
+namespace Lib{
+   export let version = '1.0'
+}
+console.log(Lib.version); // 相当于为函数Lib添加了属性
+```
+
+##### 命名空间和类合并
+
+```typescript
+class C{
+}
+namespace C{
+   export let state = 1
+}
+console.log(C.state); // 相当于为类C添加了state属性
+```
+
+此外，命名空间也可以和枚举合并，同样的也是为枚举增加属性或者方法。
+
+**注意：**在命名空间与类、函数进行生命合并的时候，一定要将命名空间放在类、函数之后。否则报错。
+
+#### 声明文件
+
+假如我们要在`TypeScript`中引入`jQuery`，我们需要这样做：
+
+首先安装`jQuery`：
+
+```typescript
+npm i jquery
+```
+
+`jQuery`是一种`UMD`库，可以通过全局的方式引入也可以通过模块化的方式引入，我们使用模块化的方式引入：
+
+```typescript
+import $ from 'jquery'
+```
+
+这里就会直接报错，提示无法找到模块`jquery`的声明文件。
+
+这是因为`jQuery`本身是用`JavaScript`编写的，我们在使用非`TypeScript`编写的类库时必须为这个类库编写一个声明文件，对外暴露它的`API`，有时候这些类库的声明文件包含在源码中，但有时候需要额外的安装，比如`jQuery`。
+
+大多数类库的声明文件其实社区都已经帮助我们编写好了，只需要在使用类库时安装指定类库的声明文件包而已。这种包的命名一般为`@type/类库名`，以`jQuery`为例：
+
+```typescript
+npm i @type/jquery -D
+```
+
+安装完成后就可以消除错误提示，可以在`TypeScript`中使用`jQuery`了。
+
+
+
+##### 编写声明文件
+
+我们在`TypeScript`中使用`JavaScript`类库时，首先要考虑的是社区是否已经有这个声明文件，我们可以通过这个[网站](microsoft.github.io/TypeSearch/ )进行查询。假如社区没有特定类库的声明文件，则需要自己去写一个。
+
