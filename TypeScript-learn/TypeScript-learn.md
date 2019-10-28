@@ -114,9 +114,10 @@ const devConfig = require('./webpack.dev.config')
 const proConfig = require('./webpack.pro.config')
 
 //根据环境变量来决定是什么环境的打包，并利用merge输出不同的合并配置
-let config = process.NODE_ENV === 'development' ? devConfig : proConfig
-
-module.exports = merge(baseConfig, config)
+module.exports = (env, argv) => {
+    let config = argv.mode === 'development' ? devConfig : proConfig
+    return merge(baseConfig, config)
+}
 ```
 
 这几个配置文件我都写了详细的注释，如果对`Webpack`不太了解，可以查看我之前写的`Webpack笔记`。
@@ -2130,4 +2131,609 @@ npm i @types/jquery -D
 ##### 编写声明文件
 
 我们在`TypeScript`中使用`JavaScript`类库时，首先要考虑的是社区是否已经有这个声明文件，我们可以通过这个[网站](microsoft.github.io/TypeSearch/ )进行查询。假如社区没有特定类库的声明文件，则需要自己去写一个。
+
+> 首先看全局库:
+
+我们可以先新建一个文件`global-lib.js`，代码如下：
+
+```javascr
+//一段普通的JS代码，定义了函数和属性
+function globalLib(option) {
+console.log(options)
+}
+
+globalLib.version = '1.0'
+
+globalLib.doSomething = function() {
+	console.log('globalLib do something')
+}
+```
+
+因为这是一个全局库，然后我们可以直接在`html`文件中使用`script`标签引入这个文件，我们在`index.ts`中直接调用这个类库中的方法，代码如下：
+
+```typescript
+//报错，找不到名称globalLib
+globalLib({x: 1})
+```
+
+这里报错的原因就是我们没有为这个类库编写声明文件，声明文件一般用`类库名.d.ts`命名，现在我们编写声明文件`global-lib.d.ts`，代码如下：
+
+```typescript
+//我们使用了declare关键字，它可以为一个外部变量提供类型声明
+
+//我们在类库中定义了一个全局的函数，我们这里也定义了一个对应的声明
+//声明它是一个函数，名称为globalLib，接收一个参数，参数类型为global.options，没有返回值
+declare function globalLib(options: globalLib.Options): void
+
+//这里我们用了命名空间，定义了同名的命名空间
+//函数和命名空间会合并，将命名空间中的属性和方法挂载到同名函数之上
+declare namespace globalLib {
+    //命名空间中有一个属性
+    const version: string
+    //一个方法
+    function doSomething(): void
+    //还有一个接口，这个接口名为Options，成员是一个索引签名，key为string，返回any
+    intereface Options {
+        [key: string]: any
+    }
+}
+```
+
+声明文件编写完毕，可以看到`index.ts`中的报错已经消除，我们可以直接使用这个类库的方法和属性：
+
+```typescript
+globalLib({x: 1})
+globalLib.version
+globalLib.doSomething()
+```
+
+
+
+> 接下来是模块类库：
+
+创建一个`module-lib.js`：
+
+```javascript
+//这是一个common.js的模块
+const version = '1.0'
+
+function doSomething() {
+    console.log('moduleLib do something')
+}
+
+moduleLib.version = version
+moduleLib.doSomething = doSomething
+
+module.exports = moduleLib
+```
+
+我们在`index.ts`中引入：
+
+```typescript
+//报错，无法找到模块'./module-lib'的声明文件
+const moduleLib = require('./module-lib')
+```
+
+我们创建声明文件`module-lib.d.ts`：
+
+```typescript
+//可以看到声明文件和全局的声明文件基本一致
+declare function moduleLib(options: Options): void
+
+//声明文件本身也是一个模块，所以不用担心接口暴露
+interface Options {
+    [key: string]: any
+}
+
+declare namespace moduleLib {
+    const version: string
+    function doSomething(): void
+}
+//最后用 export = 的形式导出
+export = moduleLib
+```
+
+然后就可以看到`index.ts`中的报错已经消除，使用属性和方法也没有问题了。
+
+
+
+> UMD库声明文件
+
+先创建一个`umd-lib.js`：
+
+```typescript
+//一个 UMD模块
+(function (root, factory) {
+    if (typeof define === "function" && define.amd) {
+        define(factory)
+    } else if (typeof module === "object" && module.exports) {
+        module.exports = factory()
+    } else {
+        root.umdLib = factory()
+    }
+}(this, function() {
+    return {
+        version: '1.0.0',
+        doSomething() {
+            console.log('umdLib do something')
+        }
+    }
+}))
+```
+
+然后在`index.ts`中引用：
+
+```typescript
+//报错，无法找到模块'./umd-lib'的声明文件
+import umdLib from './umd-lib'
+```
+
+编写声明文件`umd-lib.d.ts`：
+
+```typescript
+declare namespace umdLib {
+    const version: string
+    function doSomething(): void
+}
+//如果是UMD库，这条语句是不可缺少的
+export as namespace umdLib
+    
+export = umdLib
+```
+
+发现已经可以正常使用。
+
+
+
+##### 插件
+
+> 模块化插件
+
+有时候我们想给一个类库添加一些自定义的方法，以`moment`作为例子，首先安装：
+
+```shell
+npm i moment
+```
+
+然后在`index.ts`中导入：
+
+```typescript
+import moment from 'moment'
+
+//给moment添加自定义的方法
+//报错，类型 typeof moment 上不存在属性 myFunction
+moment.myFunction = () => {}
+```
+
+我们可以使用`declare`来解决这个问题：
+
+```typescript
+import moment from 'moment'
+//这里我们deaclare一个module，名为moment
+declare module 'moment' {
+    //使用export导出自定义的方法
+    export function myFunction(): void
+}
+
+moment.myFunction = () => {}
+```
+
+> 全局插件
+
+如果我们需要给全局变量添加一些方法，假如我们要给上面用到的`globalLib`增加一些自定义的方法，我们可以这样：
+
+```typescript
+//我们declare一个global
+declare global {
+    //里面定义一个命名空间，名称为要添加的类库名称
+    namespace globalLib {
+        //里面写要增加的方法
+        function doAnything(): void
+    }
+}
+//这时我们已经可以给globalLib增加一个doAnything方法
+globalLib.doAnything = () => {}
+```
+
+这样其实对全局的命名空间造成了一定的污染，一般不建议这样做。
+
+#### 声明文件的依赖
+
+如果一个类库很大，那么它的声明文件也会很长，一般会按照模块进行划分，那么声明文件之间就会存在一些依赖关系。我们以`jQuery`为例子，看看它是怎么组织声明文件的：
+
+首先查看`node_modules`下`@types`下的`jQuery`，找到`package.json`文件，可以发现字段`"types": "index"`，这表示所有声明文件的入口为`index.d.ts`，然后我们查看`index.d.ts`，代码如下：
+
+```typescript
+/// <reference types="sizzle" />
+/// <reference path="JQueryStatic.d.ts" />
+/// <reference path="JQuery.d.ts" />
+/// <reference path="misc.d.ts" />
+/// <reference path="legacy.d.ts" />
+
+export = jQuery;
+```
+
+这里就是使用`三斜线`引入了其他的声明文件，这里声明文件分为两种：
+
+- 一种是模块依赖，使用`types`属性，在这里的含义是`TypeScript`会在`@types`目录下寻找指定的模块，这里为`sizzle(jQuery的CSS选择器引擎)`，寻找到之后会将`sizzle`的声明文件引入进来。
+- 另一种是路径依赖，使用`path`属性，这里是相对路径，也就是跟`index.d.ts`同级的声明文件，将它们引进来。
+
+最后使用`export`进行导出。
+
+如果现在编写声明文件还感觉很困难，可以参考官网的例子或者阅读知名类库的声明文件来学习声明文件是如何编写的。
+
+
+
+#### tsconfig.json的配置
+
+##### 文件相关
+
+如果`tsconfig.json`没有任何配置，那么编译器就会根据默认的配置编译当前目录下的所有`ts`文件，`ts`文件有三种类型，分别是`.ts`、`.d.ts`、`.tsx`。
+
+我们先在`src`文件夹下创建一个`a.ts`文件：
+
+```typescript
+let s: string = 'a'
+```
+
+> files
+
+如果我们现在使用`tsc`命令进行编译，会将所有`ts`文件都进行编译，要编译单个文件，我们可以进行配置，打开`tsconfig.json`：
+
+```json
+{
+    "files": [
+        "src/a.ts"
+    ]
+}
+```
+
+`files`是一个数组，里面配置我们需要编译的文件路径，这里我们配置了`src`下的`a.ts`，这时我们在命令行运行`tsc`，这时将会只编译`a.ts`。
+
+> include
+
+如果要编译某个目录下所有的`ts`文件，可以配置`include`：
+
+```json
+{
+    "include": [
+        "src"
+    ]
+}
+```
+
+这将会编译`src`目录下所有的文件，包括子目录的文件。`include`是支持通配符的，如果我们这样配置：
+
+```json
+//将会只编译`src`目录下第一级目录下的文件，而不包括子目录
+{
+    "include": [
+        "src/*"
+    ]
+}
+
+//只会编译`src`二级目录下的文件
+{
+    "include": [
+        "src/*/*"
+    ]
+}
+```
+
+> exclude
+
+如果要排除某些文件（默认会排除`node_modules`也会排除所有的声明文件，所以不用单独配置），可以使用`exclude`：
+
+```json
+//src下的lib文件夹下的文件将不会编译
+{
+    "exclude": [
+        "src/lib"
+    ]
+}
+```
+
+> 继承
+
+**配置文件之间是可以继承的，可以把基础配置分离出来，方便复用。**
+
+我们新建一个`tsconfig.base.json`，然后将`tsconfig.json`中的基础配置剪切过来：
+
+```json
+// tsconfig.base.json
+{
+    "files": [
+        "src/a.ts"
+    ],
+    "include": [
+        "src"
+    ],
+    "exclude": [
+        "src/lib"
+    ]
+}
+```
+
+然后在`tsconfig.json`中可以通过`extends`配置型进行基础的配置：
+
+```json
+// tsconfig.json
+{
+    "extends": "./tsconfig.base"
+}
+```
+
+在`tsconfig.json`中可以覆盖继承的配置，比如：
+
+```json
+// tsconfig.json
+{
+    "extends": "./tsconfig.base",
+    //这里会覆盖继承的配置，不会忽略任何目录和文件
+    "exclude": []
+}
+```
+
+> compileOnSave
+
+还有一个选项就是`compileOnSave`，这个选项会在保存文件时让编译器自动编译，但是`VSCode`目前还不支持这个配置，`Visual Studio 2015`安装`TypeScript 1.8.4及更高版本`以及[atom-typescript](https://github.com/TypeStrong/atom-typescript#compile-on-save)插件当前支持此功能。
+
+##### 编译相关
+
+跟编译相关的选项多达近百，所以这里只列举一些常用的选项，这些编译选项已经足够日常的开发需求，不常用的选项可以自行查询文档。
+
+> incremental
+
+这个配置是增量编译，`ts`编译器可以在第一次编译后生成一个可以存储编译信息的文件，在二次编译时会根据这个文件做增量的编译，从而提高编译的速度。
+
+打开这个选项编译会生成一个文件`tsconfig.tsbuildinfo`，这个就是存储编译信息的文件。
+
+> tsBuildInfoFile
+
+可以指定编译信息文件的位置和名称，比如`"tsBuildInfoFile": "./bundleFile"`，可以将编译信息文件存储到当前文件夹下的`bundleFile`中。
+
+> diagnostics
+
+这个选项可以打印诊断信息，打开这个选项，在编译时打印诊断信息，比如编译时间。
+
+> target
+
+编译生成的`JavaScript`代码版本，比如`"target": "es5"`就是将`TypeScript`编译为`ES5`。
+
+> module
+
+编译生成的`JavaScript`代码所使用的模块标准，比如`"module": "commonjs"`即为`commonjs`。
+
+> outFile
+
+将多个相互依赖的文件生成一个文件，可以用在`AMD`模块中。比如`"outFile": "./app.js"`就会将依赖的文件打包成一个文件`app.js`。
+
+> lib
+
+`TypeScript`需要引用的一些类库，即声明文件。如果不指定，它会自己导入一些类库，假如我妈们设置`target`为`es5`，默认会导入`"lib": ["dom", "ese5", "scripthost"]`这三个库。
+
+比如我们想使用一些`es2019`的特性：
+
+```typescript
+//flat是es2019的特性，直接使用会报错
+//类型 (number | number[])[]上不存在属性flat
+console.log([1,2,[3,4]].flat())
+```
+
+这时我们在配置文件中配置：
+
+```json
+"lib": ["dom", "es5", "scripthost", "es2019.array"]
+```
+
+这时就没有报错了。
+
+> allowJs
+
+开启这个选项会允许编译`JS`文件（JS、JSX）。
+
+> checkJs
+
+开启这个选项会允许在`JS`文件中报错，通常与`allowJs`配合使用。
+
+> outDir
+
+指定编译文件的输出目录，比如`"outDir": "./out"`。
+
+> rootDir
+
+指定输入文件目录（用于控制输出目录结构），默认为当前目录，比如`"rootDir": "./src"`。
+
+>declaration
+
+开启这个选项会自动帮助我们为编译文件生成一个声明文件。
+
+> declarationDir
+
+用于指定自动生成声明文件的路径。比如`"declarationDir": "./d"`，会将自动生成的声明文件放到当前文件夹的`d`目录之下。
+
+> emitDeclarationOnly
+
+开启这个选项只生成声明文件而不生成`JS`文件。
+
+> sourceMap
+
+开启这个选项会自动生成目标文件的`sourceMap`文件。
+
+> inlineSourceMap
+
+开启这个选项会生成目标文件的`inline sourceMap`（会包含在生成的`JS`文件之中）。
+
+> declarationMap
+
+开启这个选项会为声明文件也生成`sourceMap`。
+
+> typeRoots
+
+指定声明文件的目录，默认编译器会查找`node_modules/@types`下的所有声明文件。
+
+> types
+
+指定需要加载的声明文件的包，会从`node_modules/@types`查找，如果我们在这里只指定了某一个包，那么就只会加载指定包的声明文件，而不是`@types`下的全部。
+
+> removeComments
+
+开启这个选项会删除注释。
+
+> noEmit
+
+开启则不输出任何文件，什么都不会做。
+
+> noEmitOnError
+
+当发生错误时不输出任何文件。
+
+> noEmitHelpers
+
+这个选项涉及类的继承，当我们编写类继承并编译时，生成的`JS`文件除了我们自己的代码，还引入了一些其他的工具库函数`（helpers）`，副作用是会增大我们的编译文件体积，开启这个选项就不会生成`helper`函数。但是这时生成代码 中的`__extends`会是未定义的，需要配合下面的`importHelpers`选项使用。
+
+> importHelpers
+
+开启这个选项会通过`tslib`引入`helper`函数，文件必须是模块，否则无效。
+
+> downlevelIteration
+
+开启后，如果我们的语言是`es3/5`，就会对遍历器有比较低级的实现。
+
+> strict
+
+开启后将进行严格的类型检查，如果这里设置为`true`，那么以下配置项将全部为`true`：`alwaysStrict`、`noImplicitAny`、`strictNullChecks`、`strictFunctionTypes`、`strictProptyInitialization`、`strictBindCallApply`、`noImplicitThis`。
+
+> alwaysStrict
+
+在代码中注入`“use strict”`。
+
+> noImplicitAny
+
+不允许隐式的`Any`类型。
+
+> strictNullChecks
+
+不允许把`null`、`undefined`赋值给其他类型的变量。
+
+> strictFunctionTypes
+
+不允许函数参数双向协变（更严格的函数参数检查）。
+
+> strictBindCallApply
+
+进行严格的`bind`、`call`、`apply`检查，即使在使用`bind`、`call`、`apply`时，也进行严格的类型检查。
+
+> noImplicitThis
+
+不允许`this`有隐式的`Any`类型。因为`this`可能会为`undefined`，举个例子：
+
+```typescript
+class A {
+    a: number = 1
+    getA() {
+        return function() {
+            //如果开启则会报错，不开启不会报错
+            console.log(this.a)
+        }
+    }
+}
+
+ const a = new A().getA()
+ //如果没哟开启，上面不报错，但是运行会报错
+ //会报错 undefined上没有属性a
+ //因为此时的作用域已经改变，为全局作用域
+ a()
+
+//解决方法可以将getA的返回值改成箭头函数
+```
+
+开启这个选项可以避免这种因为作用域改变而导致的`this`指向问题。
+
+> noUnusedLocals
+
+检查只声明，但未使用的局部变量。
+
+> noUnusedParameters
+
+检查未使用的函数参数。
+
+> noFallthroughCasesInSwitch
+
+防止`switch`语句贯穿（即没有写`break`的情况）。
+
+> noImplicitReturns
+
+每个分支都要有返回值。
+
+> esModuleInterop
+
+允许使用`export = `导出时，由`import from`语法导入。
+
+> allowUmdGlobalAccess
+
+允许在模块中访问`UMD`全局变量。
+
+> moduleResolution
+
+模块解析策略，默认为`"moduleResolution": "node"`，还有一个解析策略为`classic`：
+
+- `classic`:  用于`AMD`、`System`、`ES2015`，相对导入时会从相对文件夹下的`ts`，`d.ts`文件依次解析，非相对导入时会依次从里向外的`node_modules`目录中进行查找解析。
+- `node`： 相对导入时，会依次解析相对文件夹下的`ts`、`tsx`、`d.ts`，如果没有找到，则会查找`package.json`，查看是否有`types`，如果没有，则会默认去查找`index.ts`、`index.tsx`、`index.d.ts`。非相对导入时会首先查找当前目录下的`node_modules`目录，依次解析`ts`、`tsx`、`d.ts`，没有则查看`package.json`，策略和相对导入相同，如果当前目录都没找到则会从里至外依照这个策略查找，直到根目录。
+
+> baseUrl
+
+解析非相对模块的基地址，默认为当前目录。
+
+> paths
+
+路径映射，相对于`baseUrl`。
+
+比如我们不想引入`jQuery`的默认版本，而是想引入他的精简版本，可以这样写：
+
+```json
+"paths": {
+    "jquery": ["node_modules/jquery/dist/jquery.slim.min.js"]
+}
+```
+
+> rootDirs
+
+将多个目录放在一个虚拟目录下，用于运行时。比如`"rootDirs": ["src", "out"]`，这会让`src`和`root`同处一个虚拟目录之中，让编译器认为他们同属一个目录之下。
+
+> listEmittedFiles
+
+编译完成后打印输出的文件列表。
+
+> listFiles
+
+编译完成后打印编译的文件列表（包括引用的声明文件）。
+
+##### 工程引用
+
+详见[工程引用](https://www.tslang.cn/docs/handbook/project-references.html)。
+
+#### 编译工具
+
+在之前我们使用`ts-loader`将`TypeScript`编译成`JavaScript`，`ts-loader`在内部调用了`TypeScript`的官方编译器`tsc`，所以`ts-loader`和`tsc`是共享`tsconfig.json`配置文件的。`ts-loader`也有一些自己的配置，我们打开之前编写的`webpack.base.config.js`，找到这一段：
+
+```javascript
+// webpack.base.config.js
+
+module: {
+        rules: [{
+            test: /\.tsx?$/i,
+            use: [{
+                loader: 'ts-loader',
+                //通过options来配置属性
+                options: {
+                    
+                }
+            }],
+            exclude: /node_modules/
+        }]
+    }
+```
+
+
 
