@@ -2715,6 +2715,8 @@ class A {
 
 #### 编译工具
 
+##### Loader
+
 在之前我们使用`ts-loader`将`TypeScript`编译成`JavaScript`，`ts-loader`在内部调用了`TypeScript`的官方编译器`tsc`，所以`ts-loader`和`tsc`是共享`tsconfig.json`配置文件的。`ts-loader`也有一些自己的配置，我们打开之前编写的`webpack.base.config.js`，找到这一段：
 
 ```javascript
@@ -2727,7 +2729,8 @@ module: {
                 loader: 'ts-loader',
                 //通过options来配置属性
                 options: {
-                    
+                    //这个选项开启后会只做编译而不做类型检查,节省编译时间
+                    transpileOnly: false
                 }
             }],
             exclude: /node_modules/
@@ -2735,5 +2738,998 @@ module: {
     }
 ```
 
+`transpileOnly`开启后将不进行类型检查，即使`IDE`报错，当编译时将仍然能编译通过。
+
+如何在`transpileOnly`开启的情况下进行类型检查呢？需要用到一个插件`fork-ts-checker-webpack-plugin`，它会把类型检查放到一个独立的进程中进行:
+
+```shell
+npm i fork-ts-checker-webpack-plugin -D
+```
+
+然后修改配置文件`webpack.base.config.js`：
+
+```javascript
+const HtmlWebpackPlugin = require('html-webpack-plugin')
+//引入插件
+const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin')
+
+module.exports = {
+    entry: './src/index.ts',
+    output: {
+        filename: 'app.js'
+    },
+    resolve: {
+        extensions: ['.js', '.ts', '.tsx']
+    },
+    module: {
+        rules: [{
+            test: /\.tsx?$/i,
+            use: [{
+                loader: 'ts-loader'
+            }],
+            exclude: /node_modules/
+        }]
+    },
+    plugins: [
+        new HtmlWebpackPlugin({
+            template: './src/index.html'
+        }),
+        //new一下这个插件
+        new ForkTsCheckerWebpackPlugin()
+    ]
+}
+```
+
+这时运行`npm run build`就可以报错了。
+
+除了`ts-loader`，还有一个`loader`就是`awesome-typescript-loader`，它与`ts-loader`的主要区别在于：
+
+- 更适合与`Babel`集成，使用`Babel`的转义和缓存
+- 不需要安装额外的插件，就可以把类型检查放在独立的进程中进行
+
+`awesome-typescript-loader`也有`transpileOnly`选项，并且也有自带的插件，但是需要自己引入。
+
+从编译结果上看，`ts-loader`和`awesome-typescript-loader`在开启`transpileOnly`之后编译时间都有明显的缩短，如果两者都使用`transpileOnly + 类型检查进程`的方式，则`ts-loader`耗时更长，但是`awesome-typescript-loader`在这种情况下类型检查有遗漏。
+
+>  推荐直接使用`ts-loader`的默认配置即可。
 
 
+
+##### Babel
+
+使用了`TypeScript`，为什么还需要`Babel`？
+
+下面是两者之间的对比：
+
+|       | 编译能力                    | 类型检查 | 插件 |
+| ----- | --------------------------- | -------- | ---- |
+| TSC   | ts(x)、js(x) -> es3/5/6/... | 有       | 无   |
+| Babel | ts(x)、js(x) -> es3/5/6/... | 无       | 丰富 |
+
+`Babel`在`Babel7`之前是不支持`TypeScript`的，如果要使用`TypeScript`，需要使用`loader`处理再转交给`Babel`：
+
+![Babel](https://mexion.xyz/images/study-notes/TypeScript-learn/Babel.jpg)
+
+`Babel7`之后`Babel`已经可以支持`TypeScript`。
+
+我们新建一个项目`ts-babel`他的`package.json`如下：
+
+```json
+// package.json
+{
+  "name": "ts_babel",
+  "version": "1.0.0",
+  "description": "",
+  "main": "./src/index.ts",
+  "scripts": {
+      //使用babel命令，指定输出目录为dist，babel不能自动识别ts和tsx文件，所以手动指定
+    "build": "babel src --out-dir dist --extensions \".ts,.tsx\""
+  },
+  "keywords": [
+    "TypeScript",
+    "Babel"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/cli": "^7.4.4",
+    "@babel/core": "^7.4.5",
+    "@babel/plugin-proposal-class-properties": "^7.4.4",
+    "@babel/plugin-proposal-object-rest-spread": "^7.4.4",
+    "@babel/preset-env": "^7.4.5",
+    "@babel/preset-typescript": "^7.3.3"
+  }
+}
+```
+
+依赖中`@babel/cli`、`@babel/core`、`@babel/preset-env`都是通常使用`Babel`所必须的，然后我们安装了`@babel/preset-typescript`以编译`TypeScript`文件，最后`@babel/plugin-proposal-class-properties`、`@babel/plugin-proposal-object-rest-spread`来支持类属性、剩余和扩展操作符。
+
+然后我们查看根目录的`.babelrc`，`Babel`的配置文件：
+
+```json
+// .babelrc
+
+//配置使用两个preset和plugin
+{
+    "presets": [
+        "@babel/env",
+        "@babel/preset-typescript"
+    ],
+    "plugins": [
+        "@babel/proposal-class-properties",
+        "@babel/proposal-object-rest-spread"
+    ]
+}
+```
+
+接下来我们编写`index.ts`来编译一下： 
+
+```typescript
+class A {
+    a: number = 1
+}
+
+let { x, y, ...z } = { x: 1, y: 2, a : 3, b: 4 }
+let n = { x, y, ...z }
+```
+
+然后执行`npm run build`，发现项目已经可以编译成功。
+
+这里我们是完全使用`Babel`而没有使用`TypeScript`，而`Babel`是不能进行类型检查的，即使代码里有错误并且`IDE`进行了 提示，但是编译依然能够成功。
+
+如果要进行类型检查，就要安装`TypeScript`：
+
+```shell
+npm i typescript -D
+```
+
+然后使用`tsc --init`生成配置文件，在配置文件中开启一个选项：
+
+```json
+{
+    "noEmit": true
+}
+```
+
+这样，`TypeScript`就不会生成任何文件，只会做类型检查。我们接着添加一个类型检查脚本：
+
+```json
+// package.json
+
+{
+    "scripts": {
+        //开启tsc的监控模式
+        "type-check": "tsc --watch"
+    }
+}
+```
+
+然后我们运行`npm run type-check`，这时这个终端就会实时监控我们代码中的类型错误，这样`Babel`和`TypeScript`就结合起来了，`TypeScript`只做类型检查，而`Babel`只做语言转换。
+
+> 在`Babel`中使用`TypeScript`需要注意：
+
+- 命名空间(`namespace`)使用`Babel`是无法编译的
+- 类型断言要使用`as`而不要使用尖括号的形式
+- 常量枚举目前还不支持编译
+- 默认导出（`export = `）不支持，编译报错
+
+
+
+> 如何选择`TypeScript`编译工具
+
+1. 如果没有使用过`Babel`，首选`TypeScript`自身的编译器（可配合`ts-loader`使用）
+2. 如果项目中已经使用了`Babel`，安装`@babel/preset-typescript`（可配合`tsc`做类型检查）
+3. 两种编译工具不要混用
+
+#### 代码检查工具
+
+目前`TypeScript`有两种代码检查工具，`TSLint`和`ESLint`，但是目前`TypeScript`官方已经宣布全面转向`ESLint`，`TSLint`将停止维护。
+
+`TypeScript`官方转向`ESLint`的原因：
+
+- `TSLint`执行规则的方式存在一些影响性能的架构问题，修复这些问题会破坏现有的规则
+- `ESLint`性能更好，社区用户通常拥有`ESLint`的配置规则（如针对`React`和`Vue`的规则），而没有`TSLint`的配置规则。
+
+> 使用了`TypeScript`为什么还需要`ESLint`？
+
+`TypeScript`编译器一般进行两件事，一是类型检查，而是语言转换，在这个过程中会对一些语法错误进行检查，而`ESLint`除了可以检查语法错误，还可以保证代码风格的统一。
+
+
+
+因为`ESLint`是对`ES`进行类型检查，对`TS`进行检查会有兼容问题，所以需要使用`typescript-eslint`项目进行解决。
+我们在之前的项目中进行改造，首先安装`eslint`、`@typescript-eslint/eslint-plugin（能够使ESLint识别一些特殊语法）`、`@typescript-eslint/parser（为ESLint提供解析器）`。
+
+然后我们在根目录创建`eslintrc.json`配置文件：
+
+```json
+// eslintrc.json
+
+{
+    //指定解析器
+    "parser": "@typescript-eslint/parser",
+    //指定插件
+    "plugins": ["@typescript-eslint"],
+    "parserOptions": {
+        //使用tsconfig.json中的信息
+        "project": "./tsconfig.json"
+    },
+    "extends": [
+        //使用官方推荐的recommended规则
+        "plugin:@typescript-eslint/recommended"
+    ],
+    "rules": {
+        
+    }
+}
+```
+
+我们添加一个脚本：
+
+```json
+//package.json
+
+{
+    "scripts": {
+        //自动检查ts和js文件
+        "lint": "eslint src --ext .js,.ts"
+    }
+}
+```
+
+然后我们使用`npm run lint`执行一下，这时发现`ESLint`已经可以生效。
+
+除了使用脚本进行代码检查，我们还可以安装`ESLint`的插件来辅助开发，打开`VSCode`的插件，安装`ESLint`，打开`VSCode`配置文件，添加以下几行：
+
+```json
+{
+    //每次保存代码时将以ESLint规则进行修复
+    "eslint.autoFixOnSave": true,
+    //检测ESLint所指定的语言
+    "eslint.validate": [
+        "javascript",
+        "javascriptreact",
+        {
+            "language": "typescript",
+            "autoFix": true
+        },
+        {
+            "language": "html",
+            "autoFix": true
+        },
+        {
+            "language": "vue",
+            "autoFix": true
+        }
+    ]
+    
+}
+```
+
+这时候保存代码时将按照规则自动进行修复。
+
+
+
+> `babel-eslint`与`typescript-eslint`
+
+- `babel-eslint`： 支持`TypeScript`没有的额外语法检查，抛弃`TypeScript`，不支持类型检查
+- `typescript-eslint`： 基于`TypeScript`的`AST`，支持创建基于类型信息的规则（`tsconfig.json`）
+- 两者底层机制不同，不要一起使用
+- `Babel`体系建议使用`babel-eslint`，否则使用`typescript-eslint`
+
+#### Jest单元测试
+
+`Jest`是`FaceBook`推出的一款单元测试工具。
+
+`TS`在编译工具和代码检查工具上分成了两派，分别是`Babel系（@babel/preset-typescript和babel-eslint`）以及`非Babel系（ts-loader和typescript-eslint）`，单元测试也是如此，分为`babel-jest（Babel系，不能对测试代码进行类型检查）`和`ts-jest（非Babel系）`。
+
+##### ts-jest
+
+首先我们需要安装`jest`和`ts-jest`，然后我们配置脚本：
+
+```json
+// package.json
+
+{
+    "scripts": {
+        "test": "jest"
+    }
+}
+```
+
+运行命令生成`Jest`配置文件：
+
+```shell
+ts-jest config:init
+```
+
+这会生成一个`jest.config.js`文件：
+
+```javascript
+//jest.config.js
+
+module.exports = {
+    //指定preset为ts-jest
+    preset: 'ts-jest',
+    //测试环境为node
+    testEnvironment: 'node'
+}
+```
+
+我们在`src`文件夹新建一个`math.ts`：
+
+```typescript
+function add(a: number, b: number) {
+    return a + b
+}
+
+function sub(a: number, b: number) {
+    return a - b
+}
+
+module.exports = {
+    add,
+    sub
+}
+```
+
+接下来编写测试用例，我们在根目录新建`test`文件夹，在里面新建`math.test.ts`：
+
+```typescript
+//导入测试文件
+const math = require('../src/math')
+
+//第一个测试用例，测试1 + 1 是否等于 2
+test('add: 1 + 1 = 2', () => {
+    expect(math.add(1, 1)).toBe(2)
+})
+
+//第二个测试用例，测试1 - 2 是否等于 -1
+test('sub: 1 - 1 = -1', () => {
+    expect(math.sub(1, 2)).toBe(-1)
+})
+```
+
+运行测试脚本`npm run test`，这时两个测试用例应该都会通过。
+
+使用`ts-jest`的好处在于它可以在测试用例中进行类型检查，比如我们在`math.test.js`中：
+
+```typescript
+let x: number = "1"
+```
+
+这时运行测试，将会报错。
+
+##### babel-jest
+
+照例，首先安装`jest`和`babel-jest`以及`jest`的声明文件`@types/jest`以及`node`的声明文件`@types/node`。
+
+我们沿用前面用到的`math.ts`和`test`文件夹，运行测试，两个测试用例都会通过，但是没有进行类型检查。
+
+如果要使用类型检查，依然需要启动前面编写的类型检查脚本`npm run type-check`。
+
+### TypeScript实战
+
+#### React
+
+需求为创建一个简单的员工管理系统，可以通过员工的姓名和部门查询员工的信息，还有一个系统管理页面，在这里可以进行一些系统配置。
+
+##### 手动创建
+
+首先在项目目录安装`React`和`React-dom`:
+
+```shell
+npm i react react-dom
+```
+
+然后安装声明文件：
+
+```shell
+npm i @types/react @types/react-dom -D
+```
+
+安装`webpack`和`typescript`以及一些`loader`还有插件：
+
+```shell
+npm i clean-webpack-plugin html-webpack-plugin typescript ts-loader webpack webpack-cli webpack-dev-server webpack-merge -D
+```
+
+需要修改`tsconfig.json`：
+
+```json
+// tsconfig.json
+
+{
+    "compilerOptions": {
+        //配置jsx
+        "jsx": "react"
+    }
+}
+//jsx配置项有三个选项
+//preserve: 生成的代码会保留jsx格式，扩展名就是jsx，可以被后续的操作使用，比如传给babel
+//react-native: 生成的代码保留jsx，扩展名是js
+//react： 生成的代码是纯js，拓展名也是js
+```
+
+修改脚本：
+
+```json
+{
+  "main": "./src/index.tsx",
+  "scripts": {
+    "start": "webpack-dev-server --mode=development --config ./build/webpack.config.js",
+    "build": "webpack --mode=production --config ./build/webpack.config.js"
+  }
+}
+
+```
+
+项目根目录新建`build`文件夹，生成三个配置文件：
+
+```js
+//webpack.base.config.js
+
+const HtmlWebpackPlugin = require('html-webpack-plugin')
+
+module.exports = {
+    //这里注意，入口要修改为index.tsx
+    entry: './src/index.tsx',
+    output: {
+        filename: 'app.js'
+    },
+    resolve: {
+        extensions: ['.js', '.ts', '.tsx']
+    },
+    module: {
+        rules: [{
+            test: /\.tsx?$/i,
+            use: [{
+                loader: 'ts-loader'
+            }],
+            exclude: /node_modules/
+        }]
+    },
+    plugins: [
+        new HtmlWebpackPlugin({
+            template: './src/index.html'
+        })
+    ]
+}
+```
+
+```javascript
+//webpack.config.js
+
+const merge = require('webpack-merge')
+const baseConfig = require('./webpack.base.config')
+const devConfig = require('./webpack.dev.config')
+const proConfig = require('./webpack.pro.config')
+
+module.exports = (env, argv) => {
+    let config = argv.mode === 'development' ? devConfig : proConfig
+    return merge(baseConfig, config)
+}
+```
+
+```javascript
+//webpack.dev.config.js
+
+module.exports = {
+    devtool: 'cheap-module-eval-source-map'
+}
+```
+
+```javascript
+//webpack.pro.config.js
+
+const {
+    CleanWebpackPlugin
+} = require('clean-webpack-plugin')
+
+module.exports = {
+    plugins: [
+        new CleanWebpackPlugin()
+    ]
+}
+```
+
+在`src`文件夹下生成`index.html`模板文件：
+
+```html
+// index.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Hello TypeScript</title>
+</head>
+<body>
+    <div id="app"></div>
+</body>
+</html>
+```
+
+
+
+接下来在`src`文件夹下新增`components`文件夹，在文件夹中创建一个组件，名为`Hello.tsx`：
+
+```tsx
+// Hello.jsx
+
+import React from 'react'
+//编写props接口
+interface Greeting {
+    name: string
+}
+//一个简单的函数组件
+const Hello = (props: Greeting) => (<h1>Hello { props.name }</h1>)
+export default Hello
+```
+
+接下来我们编写`src`目录的`index.tsx`：
+
+```typescript
+// index.tsx
+
+import React from 'react'
+import ReactDOM from 'react-dom'
+
+import Hello from './components/Hello'
+
+ReactDOM.render(<Hello name="TypeScript"/>, document.getElementById('app'))
+```
+
+运行`script`命令`npm start`，发现已经可以成功运行，打开浏览器，输入`localhost:8080`，已经可以成功显示`Hello TypeScript`。
+
+接下来我们来优化一下`Webpack`的打包，因为`react`的体积比较大，一般会将库文件和业务文件拆分成两个文件，这样可以利用浏览器的缓存，我们修改`webpack.base.config.js`：
+
+```javascript
+// webpack.base.config.js
+
+const HtmlWebpackPlugin = require('html-webpack-plugin')
+
+module.exports = {
+    entry: {
+        //配置名称
+        'app': './src/index.tsx'
+    },
+    output: {
+        //这里配置出口文件名称，不定死，配置了name和8位哈希值
+        filename: '[name].[chunkhash:8].js'
+    },
+    resolve: {
+        extensions: ['.js', '.ts', '.tsx']
+    },
+    module: {
+        rules: [{
+            test: /\.tsx?$/i,
+            use: [{
+                loader: 'ts-loader'
+            }],
+            exclude: /node_modules/
+        }]
+    },
+    plugins: [
+        new HtmlWebpackPlugin({
+            template: './src/index.html'
+        })
+    ],
+    optimization: {
+        //进行代码分割
+        splitChunks: {
+            chunks: 'all'
+        }
+    }
+}
+```
+
+这时运行`npm run build`，会生成`dist`目录，目录下有`index.html`、`app.hash值.js`、`vendors~app.hash值.js`三个文件，其中`app.hash值.js`是我们的业务代码，`vendors~app.hash值.js`是我们使用的库的代码。
+
+这时假如我们修改了业务代码，那么生成的`hash`会不同，而库的代码没有改变那么`hash`就不会改变，就可以充分利用到浏览器的缓存，提升速度。
+
+##### 脚手架创建
+
+使用脚手架创建我们需要使用`npx`这个命令，它可以避免全局安装，在使用完成后可以自行删除，这样可以保证我们安装的脚手架总是最新的版本。
+
+```shell
+npx create-react-app ts-react-app --typescript
+```
+
+这里使用官方脚手架工具`create-react-app`创建项目，名称为`ts-react-app`，最后的`--typescript`参数表示我们要使用`TypeScript`创建工程。
+
+安装完成后，我们进入项目目录直接使用`npm start`就可以启动这个项目。
+
+我们可以查看生成项目的目录结构：
+
+- `public`： 一般存放静态文件（比如图标字体图片等），这个目录中的文件打包时会被拷贝到打包目录，其中`index.html`即为模板文件，所有构建的文件都会被注入到这个文件之中
+- `src`： 项目的源码目录
+- `package.json`： `npm`包文件的配置项，里面已经帮助我们预装了一些包，但是在这里看不到`webpack`，在项目中也看不到配置文件，因为已经被脚手架隐藏，封装到了`react-scripts`中，如果想修改`webpack`配置，可以使用命令`npm run eject`将配置暴露出来。
+
+
+
+为了后面项目的使用，改造一下，首先安装一些包：
+
+```shell
+npm i antd axios react-router-dom -S
+```
+
+安装一些开发中使用的依赖：
+
+```shell
+npm i babel-plugin-import customize-cra react-app-rewired http-server http-proxy-middleware -D
+```
+
+其中`babel-plugin-import`可以帮助我们实现`antd`的按需加载，`customize-cra`和`react-app-rewired`可以帮助我们实现对`create-react-app`的自定义，`http-server`和`http-proxy-middleware`可以帮助我们后续搭建`mocker-server`。
+
+然后在根目录我们创建一个`config-overrides.js`，这是`antd`官方提供的解决方案，从而实现按需加载：
+
+```javascript
+// config-overrides.js
+
+const { override, fixBabelImports } = require('customize-cra')
+
+module.exports = override(
+    fixBabelImports('import', {
+        libraryName: 'antd',
+        libraryDirectory: 'es',
+        style: 'css'
+    })
+)
+```
+
+我们将前面用到的`components`文件夹拷贝过来，到`src`文件夹下，然后我们在`App.tsx`中引入`Hello.tsx`：
+
+```tsx
+// App.tsx
+
+import React from 'react';
+import './App.css';
+
+import Hello from './components/Hello'
+
+const App: React.FC = () => {
+  return (<Hello name="TypeScript"/>)
+}
+
+export default App
+```
+
+修改脚本文件：
+
+```json
+// package.json
+
+"scripts": {
+    "start": "react-app-rewired start",
+    "build": "react-app-rewired build",
+    "test": "react-app-rewired test"
+  }
+```
+
+运行`npm run start`发现可以正常启动和显示。
+
+我们使用`antd`来改造一下这个组件：
+
+```tsx
+// Hello.tsx
+
+import React from 'react'
+//引入一个Button组件
+import { Button } from 'antd'
+
+//编写props接口
+interface Greeting {
+    name: string
+}
+//一个简单的函数组件
+const Hello = (props: Greeting) => (
+    <div>
+        <Button type="primary">Hello {props.name}</Button>
+    </div>
+)
+export default Hello
+```
+
+再次运行`npm run start`发现`Button`组件已经可以正常使用。
+
+##### 函数组件和类组件
+
+如何编写一个具有类型约束的函数组件和类组件？
+
+> 函数组件
+
+前面我们创建了一个无状态组件`Hello.tsx`，这是一个函数组件，在`React`的声明文件中，单独为函数组件定义了一个类型`React.FC`，我们用这个类型重新改造`Hello.tsx`：
+
+```tsx
+// Hello.tsx
+
+import React from 'react'
+//引入一个Button组件
+import { Button } from 'antd'
+
+//编写props接口
+interface Greeting {
+    name: string
+}
+//一个简单的函数组件
+const Hello = (props: Greeting) => (
+    <div>
+        <Button type="primary">Hello {props.name}</Button>
+    </div>
+)
+export default Hello
+```
+
+我们首先增加了`Greeting`接口的成员，接下来让`Hello`函数的类型指定为`React.FC`，`React.FC`是一个泛型类型，它有一个泛型参数`P`代表这个函数`props`的类型，默认为空对象。我们在这里指定了函数的`props`类型为`Greeting`。因为如果参数直接写`props`那么在内部使用就必须使用`props.属性`的形式，不太方便，所以我们就直接将`props`在参数中解构出来，这样我们在函数内部就可以直接使用属性。
+
+那么使用`React.FC`和不使用有什么区别呢？实际上区别并不是很大，使用`React.FC`的优点在于它在函数的参数中隐含声明了`children`属性，在函数中就可以直接使用`chilren`属性了，还有就是我们为这个函数定义一些静态属性时，会给我们一些提示，比如我们可以定义`Hello.defaultProps`，这时将会给我们提示。
+
+```tsx
+// Hello.tsx
+
+import React from 'react'
+//引入一个Button组件
+import { Button } from 'antd'
+
+//编写props接口
+interface Greeting {
+    //当我们编写了defaultProps，那么编写了默认值的属性必须为可选的
+    name?: string
+    firstName?: string
+    lastName?: string
+}
+//一个简单的函数组件，类型为React.FC，参数类型为Greeting
+const Hello: React.FC<Greeting> = ({
+    //解构props参数
+    name,
+    firstName,
+    lastName,
+    children
+}) => (
+    <div>
+        <Button type="primary">Hello { name }</Button>
+    </div>
+)
+//编写了defaultProps
+Hello.defaultProps = {
+    name: '',
+    firstName: '',
+    lastName: ''
+}
+
+export default Hello
+```
+
+**使用`React.FC`并没有给我们带来很明显的好处，而且这个类型可能会被弃用，所以建议使用普通的方式创建函数组件即可。**
+
+
+
+> 类组件
+
+我们在`components`文件夹下新建一个类组件`HelloClass.tsx`：
+
+```tsx
+// HelloClass.tsx
+
+import React, { Component } from 'react'
+import { Button } from 'antd'
+
+interface Greeting {
+    name: string
+    firstName: string
+    lastName: string
+}
+
+interface State {
+    count: number
+}
+
+class HelloClass extends Component<Greeting, State> {
+    //初始化状态
+    state: State = {
+        count: 0
+    }
+    //定义默认属性值，它将作为类的静态成员存在
+    static defaultProps = {
+        firstName: '',
+        lastName: ''
+    }
+    
+    //render函数
+    render() {
+        return (<Button>Hello { this.props.name }</Button>)
+    }
+}
+
+export default HelloClass
+```
+
+在`React`的声明文件中对它的`API`都进行了重新定义，`Component`被定义为一个泛型类，它有三个泛型参数，第一个参数`P`代表`props`，第二个参数`S`代表`state`，第三个参数`SS`代表`snapshot`。这里我们指定了`props`的类型为`Greeting`，指定`state`类型为`State`，然后我们在类中初始化状态`state`，类型为`State`， 以静态成员的方式定义了默认属性`defaultProps`，最后我们编写了`render`函数。
+
+然后在`App.tsx`中引入它：
+
+```tsx
+// index.tsx
+
+import React from 'react';
+import './App.css';
+
+import Hello from './components/Hello'
+import HelloClass from './components/HelloClass'
+
+const App: React.FC = () => {
+  return (
+    <>
+      <Hello name="TypeScript" />
+      <HelloClass name="TypeScript"></HelloClass>
+    </>
+  )
+}
+
+export default App
+```
+
+这时两个组件都可以正常显示。
+
+我们给这个类增加一些功能，当我们点击按钮时会显示点击了多少次，我们先改造类组件：
+
+```tsx
+// HelloClass.tsx
+
+import React, { Component } from 'react'
+import { Button } from 'antd'
+
+interface Greeting {
+    name: string
+    firstName: string
+    lastName: string
+}
+
+interface State {
+    count: number
+}
+
+class HelloClass extends Component<Greeting, State> {
+    //初始化状态
+    state: State = {
+        count: 0
+    }
+    //定义默认属性值，它将作为类的静态成员存在
+    static defaultProps = {
+        firstName: '',
+        lastName: ''
+    }
+    
+    //render函数
+    render() {
+        return (
+            <>
+                <p>你点击了{ this.state.count }次</p>
+                <Button onClick={ () => { this.addCount() } }>Hello { this.props.name }</Button>
+            </>
+        )
+    }
+
+    addCount() {
+        this.setState({
+            count: this.state.count + 1
+        })
+    }
+}
+
+export default HelloClass
+```
+
+接下来修改函数组件`Hello.tsx`：
+
+```tsx
+// Hello.tsx
+
+import React, { memo, useState } from 'react'
+//引入一个Button组件
+import { Button } from 'antd'
+
+//编写props接口
+interface Greeting {
+    name: string
+}
+//一个简单的函数组件
+const Hello = memo(function Hello(props: Greeting) {
+    const { name } = props
+
+    const [count, setCount] = useState(0)
+    return (
+        <>
+            <p>你点击了{  count }次</p>
+            <Button onClick={() => { setCount(count + 1) }}>Hello { name }</Button>
+        </>
+    )
+})
+export default Hello
+```
+
+这时点击两个按钮都可以正常实现点击改变点击次数的功能。
+
+##### 高阶组件和Hooks
+
+> React组件的演化
+
+| 组件复用方式    | 优势                                                         | 劣势                                                         | 状态               |
+| --------------- | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------ |
+| 类组件（class） | 发展时间长，接受度广泛                                       | 只能继承父类                                                 | 传统模式，长期存在 |
+| Mixin           | 可复制任意对象的任意多个方法                                 | 组件相互依赖、耦合，可能产生冲突，不利于维护                 | 被抛弃             |
+| 高阶组件        | 利用装饰器模式，在不改变组件的基础上，动态地为其添加新的能力 | 嵌套过多调试困难，乣遵循某些约定（不改变原始组件，透传props等） | 能力强大，应用广泛 |
+| Hooks           | 代替class，多个Hooks互不影响，避免嵌套地狱，开发效率高       | 切换到新思维需要成本                                         | React的未来        |
+
+> 高阶组件
+
+我们在`components`文件夹下新建一个`HelloHoc.tsx`：
+
+```tsx
+// HelloHOC.tsx
+
+import React, { Component } from 'react'
+//引入了HelloClass
+import HelloClass from './HelloClass'
+//组件之中本身是没有loading属性的，我们需要定义一个接口
+interface Loading {
+    loading: boolean
+}
+//一个方法，接收一个组件，组件类型为官方定义的React.componentType
+//这个类型表示组件类型，它可以是类组件也可以是函数组件
+//这个类型是一个泛型接口，需要传入一个泛型参数P，P表示被包装组件的props
+//我们在参数中引用了泛型变量，那么我们这个函数也要改造成泛型函数
+//我们用这个泛型约束一下Component的props类型，以及传出组件所透传的props类型
+//被包装组件没有loading属性，所以我们要给它添加一个属性，我们用接口来定义
+//将component的props类型改为由P和Loading接口的交叉类型
+function HelloHoc<P>(WrappedComponent: React.ComponentType<P>) {
+    return class extends Component<P & Loading> {
+        render() {
+            //先从props解析出loading来判断，以及解构props用于透传
+            const { loading, ...props } = this.props
+            //假如loading为真则返回loading显示，否则返回包装组件本身，并且将它的props透传进去
+            return loading ? <div>Loading...</div> : <WrappedComponent { ...props as P }/>
+        }
+    }
+}
+
+export default HelloHoc(HelloClass)
+```
+
+然后我们在`App.tsx`中引入：
+
+```tsx
+// App.tsx
+
+
+import './App.css';
+
+
+import HelloHOC from './components/HelloHOC'
+
+const App: React.FC = () => {
+  return (
+      <HelloHOC name="TypeScript" loading={ true }/>
+  )
+}
+
+export default App
+
+```
+
+这时会报错，因为`HelloClass`组件被包装之后，它的默认属性是传递不到告诫组件的，解决方式是在`HelloClass.tsx`中修改`Greeting`接口，将未传的属性改为可选：
+
+```tsx
+// HelloClass.tsx
+//只放出需要修改的部分
+interface Greeting {
+    name: string
+    //改为可选
+    firstName?: string
+    lastName?: string
+}
+```
+
+因为我们传入的`loading`为`true`，所以会显示`loading...`，如果我们改为`false`，则会显示包装组件本身。
