@@ -3111,8 +3111,6 @@ let x: number = "1"
 
 #### React
 
-需求为创建一个简单的员工管理系统，可以通过员工的姓名和部门查询员工的信息，还有一个系统管理页面，在这里可以进行一些系统配置。
-
 ##### 手动创建
 
 首先在项目目录安装`React`和`React-dom`:
@@ -3352,16 +3350,16 @@ npx create-react-app ts-react-app --typescript
 为了后面项目的使用，改造一下，首先安装一些包：
 
 ```shell
-npm i antd axios react-router-dom -S
+npm i antd -S
 ```
 
 安装一些开发中使用的依赖：
 
 ```shell
-npm i babel-plugin-import customize-cra react-app-rewired http-server http-proxy-middleware -D
+npm i babel-plugin-import customize-cra react-app-rewired -D
 ```
 
-其中`babel-plugin-import`可以帮助我们实现`antd`的按需加载，`customize-cra`和`react-app-rewired`可以帮助我们实现对`create-react-app`的自定义，`http-server`和`http-proxy-middleware`可以帮助我们后续搭建`mocker-server`。
+其中`babel-plugin-import`可以帮助我们实现`antd`的按需加载，`customize-cra`和`react-app-rewired`可以帮助我们实现对`create-react-app`的自定义。
 
 然后在根目录我们创建一个`config-overrides.js`，这是`antd`官方提供的解决方案，从而实现按需加载：
 
@@ -3733,3 +3731,54 @@ interface Greeting {
 ```
 
 因为我们传入的`loading`为`true`，所以会显示`loading...`，如果我们改为`false`，则会显示包装组件本身。
+
+##### Hooks
+
+高阶组件用在`TS`中会遇到比较多的类型问题，`React`声明文件还没有很好的兼容高阶组件的类型检查，更推荐的方式是使用`Hooks`编写组件。
+
+我们在`components`目录下再新建一个`HelloHooks.tsx`，因为实际上我们上面改到的`Hello.tsx`已经用到了`Hooks`，所以直接拷贝过来在此基础上进行修改：
+
+```tsx
+// HelloHooks.tsx
+
+import React, { memo, useState, useEffect } from 'react'
+//引入一个Button组件
+import { Button } from 'antd'
+
+//编写props接口
+interface Greeting {
+    name: string
+}
+//一个简单的函数组件
+const HelloHooks = memo(function Hello(props: Greeting) {
+    const { name } = props
+
+    const [count, setCount] = useState(0)
+    //useState是一个泛型函数，接收一个泛型参数来约束状态的类型
+    //我们这里将参数设置为String | null联合类型，这样这个状态的值为string或者null
+    const [text, setText] = useState<string | null>(null)
+	
+    //useEffect，依赖了count
+    useEffect(() => {
+        if(count > 5) {
+            setText('休息一下')
+        }
+    }, [count])
+
+    return (
+        <>
+            <p>你点击了{count}次</p>
+            {
+                text && <p>{ text }</p>
+            }
+            <Button onClick={() => { setCount(count + 1) }}>Hello {name}</Button>
+        </>
+    )
+})
+export default HelloHooks
+```
+
+
+
+**写到这里其实已经可以编写基本的基于`TypeScript`的`React`组件了，如果要继续学习`TypeScript && React`的使用，推荐阅读[React & Redux in TypeScript - Static Typing Guide](https://github.com/piotrwitek/react-redux-typescript-guide)。**
+
