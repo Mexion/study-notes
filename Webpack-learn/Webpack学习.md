@@ -155,7 +155,7 @@ loader的使用如下：
 
 - 使用test正则来匹配需要打包的文件
 - 使用use来配置需要使用什么loader
-- 如果一个类型的文件需要使用多个loader，使用一个数组来含括这些loader，webpack会 **从下到上** ，**从右到左** 依次调用
+- 如果一个类型的文件需要使用多个loader，使用一个数组来含括这些loader，webpack会 **从下到上** ，**从右到左** 依次调用，如果loader的配置中有`force: 'pre'`，loader会先执行。
 
 
 
@@ -904,6 +904,85 @@ if(module.hot) {
 
 >  最后：**永远不要**在生产环境(production)下启用 HMR。
 
+### 8.3 实现请求转发
+
+如果我们要在开发环境下解决请求转发的问题，可以使用`WebpackDevServer`自带的代理配置：
+
+```js
+// webpack.dev.js
+
+module.exports = {
+    //...
+    devServer: {
+        //新增proxy配置
+        proxy: {
+            "/api": "http://localhost:3000"
+        }
+    }
+}
+```
+
+这条配置的意思是，当我们请求`/api`这个接口时，会将请求转发到`http://localhost:3000/api`这个接口之上。更多配置项和配置方法详见 [devserver-proxy](https://www.webpackjs.com/configuration/dev-server/#devserver-proxy)。
+
+### 8.4 HistoryApiFallback解决单页面路由问题
+
+当我们编写单页面应用，比如有下面的`React`路由配置：
+
+```jsx
+// ...
+class App extends Component {
+    render() {
+        return (
+        	<BrowserRouter>
+                <div>
+                    <Route path="/" exact component={ Home }/>
+                	<Route path="/" component={ List }/>
+                </div>
+            </BrowserRouter>
+        )
+    }
+}
+```
+
+使用`WebpackDevServer`启动页面，访问`localhost:8080/list`时，会显示`Cannot GET /list`，原因是这样去访问会让`WebpackDevServer`以为这是去直接访问后端的`list`接口，这自然是找不到的，解决方法就是在`WebpackDevServer`的配置项中增加：
+
+```js
+// webpack.dev.js
+
+module.exports = {
+    // ...
+    devServer: {
+        //新增historyApiFallback配置
+        historyApiFallback: true
+    }
+}
+```
+
+这样路由就可以正常生效了。
+
+`HistoryApiFallback`还可以这样配置：
+
+```js
+// webpack.dev.js
+
+module.exports = {
+    // ...
+    devServer: {
+        //新增historyApiFallback配置
+        historyApiFallback: {
+        	rewrites: [{
+                from: /abc.html/,
+                to: '/index.html'
+            }]
+        }
+    }
+}
+```
+
+这样就可以让访问`abc.html`的网址，实际上访问的是`index.html`。
+
+
+
 ## 9. 使用Babel处理ES6语法
 
 我们如果直接在项目中编写ES6的代码，虽然可能在新版的Chrome或者火狐上已经没什么问题了，但是在一些老版本的浏览器以及IE或者一些国产浏览器上是不能直接运行的。这就需要我们将ES6的代码转化成ES5的代码，Babel就是一款能将ES6的代码转换为ES5代码的工具。
@@ -1387,7 +1466,7 @@ module.exports = {
 
 再重新打包，这时候的文件名已经为`lodash.js`。
 
-### 13.2.2 splitChunks参数详解
+#### 13.2.2 splitChunks参数详解
 
 如果我们将splitChunks的配置改为一个空对象：
 
@@ -1715,6 +1794,8 @@ module.exports = {
 
 这时重新打包，上面的输出已经为`true`。
 
+
+
 ## 19. 环境变量的使用方法
 
 现在我们的三个配置文件分别为`webpack.common.js`、`webpack.dev.js`、`webpack.prod.js`，在`webpack.dev.js`和`webpack.prod.js`中导出的都是通过`merge`融合过后的对象，现在我们可以改写一下我们的配置文件：
@@ -1766,7 +1847,8 @@ module.exports = prodConfig;
 ```
 
 ```js
-//这里引入了一个node的核心模块
+// webpack.common.js
+
 const path = require('path');
 
 const HtmlWebpackPlugin = require('html-webpack-plugin');   //引入html-webpack-plugin
@@ -1866,10 +1948,523 @@ module.exports = (env) => {
 
 ```
 
-可以看到我们在`build`这条命令里加了一条参数`--env.production`，这条参数表示传入一个参数`env`，默认值为`production`，这样就可以传递入`env`参数，然后使用线上环境配置进行打包。而其他两条由于没有传递参数，所以没有`env`，也就会走`else`这个条件，使用开发环境的配置进行打包。
+可以看到我们在`build`这条命令里加了一条参数`--env.production`，这条参数表示通过全局变量向webpack的配置文件传入一个参数`production`，默认值为`true`，这样就可以传入`env`参数，然后使用线上环境配置进行打包。而其他两条由于没有传递参数，所以没有`env`，也就会走`else`这个条件，使用开发环境的配置进行打包。
 
 这三条命令的用处分别是：
 
 - `dev`： 使用开发环境配置打包，并通过`webpack-dev-server`启动一个服务器方便调试。
 - `dev-build`：使用开发环境配置打包，但是不通过`webpack-dev-server`启动服务器，因为通过`webpack-dev-server`启动服务器打包的文件不生成在输出目录，而是保存在内存中，不方便我们查看，
 - `build`：使用线上环境配置打包，会开启代码压缩等一系列优化的方式。
+
+传递参数的方法还有另外的方式，比如：
+
+```json
+{
+  "scripts": {
+    "build": "webpack --env production --config ./build/webpack.common.js"
+  },
+}
+```
+
+这样传入的就直接是`production`而不是`env`了，在`webpack.common.js`中就是这样接收：
+
+```js
+// webpack.common.js
+
+//...
+module.exports = (production) => {
+    if(production ) {
+        return merge(commonConfig, prodConfig);
+    } else {
+        return merge(commonConfig, devConfig);
+    }
+}
+```
+
+还可以这样传递：
+
+```json
+{
+  "scripts": {
+    "build": "webpack --env.production=abc --config ./build/webpack.common.js"
+  },
+}
+```
+
+这时就可以判断传入的`production`是不是`abc`来区分怎样打包。
+
+```js
+// webpack.common.js
+
+//...
+module.exports = (env) => {
+    if(env&& env.production === 'abc') {
+        return merge(commonConfig, prodConfig);
+    } else {
+        return merge(commonConfig, devConfig);
+    }
+}
+```
+
+
+
+## 20. Library的打包
+
+### 20.1 library和libraryTarget
+
+之前我们都是对业务代码进行打包，假如我们要写一个库（比如函数库，组件库），那么要如何打包呢？
+
+我们新建一个文件夹`library`并进入，运行`npm init -y`初始化为一个`npm`项目，之后我们在里面创建一个文件夹`src`，在`src`中创建`math.js`、`string.js`，`index.js`三个文件，编辑如下：
+
+```js
+// math.js
+
+export function add(a, b) {
+  return a + b
+}
+
+export function minus(a, b) {
+  return a - b
+}
+
+export function multiply(a, b) {
+  return a * b
+}
+
+export function division(a, b) {
+  return a / b
+}
+```
+
+```js
+// string.js
+
+export function join(a, b) {
+  return a + '' +  b
+}
+```
+
+```js
+// index.js
+
+import * as math from './math'
+import * as string from './string'
+
+export default { math, string }
+```
+
+可以看到`math.js`和`string.js`中定义了一些简单的功能函数，然后让`index.js`作为入口文件导出这两个模块。
+
+这个库如果直接给浏览器使用肯定是使用不了的，所以需要使用`Webpack`进行打包。进入到项目根目录，运行：
+
+```bash
+npm i webpack webpack-cli -D
+```
+
+安装`Webpack`，然后在根目录创建一个配置文件`webpack.config.js`,修改`package.json`，新增一条`script`命令：
+
+```json
+// package.json
+{
+    "scripts": {
+        "build": "webpack"
+    }
+}
+```
+
+```js
+// webpack.config.js
+
+const path = require('path')
+
+module.exports = {
+    mode: 'production',
+    entry: './src/index.js',
+    output: {
+        path: path.resolve(__dirname, 'dist'),
+        filename: 'library.js'
+    }
+}
+```
+
+这时运行`npm run build`就会进行打包，在根目录`dist`文件生成打包文件`library.js`。如果是我们的业务代码，到这一步已经结束了，但是如果是一个供别人使用的库文件，那么就要考虑到别人的引用问题，别人可能有以下几种用法：
+
+```js
+// ES module
+import library from 'library'
+
+// commonjs
+const library = require('library')
+
+//amd...
+
+```
+
+如果想要我们的库被外部支持这些方式引用，我们还需要做一个配置：
+
+```js
+// webpack.common.js
+
+const path = require('path')
+
+module.exports = {
+    mode: 'production',
+    entry: './src/index.js',
+    output: {
+        path: path.resolve(__dirname, 'dist'),
+        filename: 'library.js',
+        //以UMD的模式暴露library
+        libraryTarget: 'umd'
+    }
+}
+```
+
+这个配置可以让`webpack`以`UMD（通用模块定义规范）`的模式暴露`library`，`UMD`可以支持以不同的引入方式进行引入。
+
+假如我们不仅希望可以通过以上的方式进行引入，还可以通过`script`标签来引入并将整个库当做全局变量来使用：
+
+```html
+<script src="./library.js"></script>
+```
+
+我们还需要增加一个配置项：
+
+```js
+// webpack.common.js
+
+const path = require('path')
+
+module.exports = {
+    mode: 'production',
+    entry: './src/index.js',
+    output: {
+        path: path.resolve(__dirname, 'dist'),
+        filename: 'library.js',
+        //以UMD的模式暴露library
+        libraryTarget: 'umd',
+        //将打包生成的代码挂载到名为library的全局变量上
+        library: 'library'
+    }
+}
+```
+
+这时重新打包，就可以将整个库使用`script`标签引入并当做全局变量使用了。
+
+如果不使用`UMD`模式，`libraryTarget`可以和`library`进行配合使用，`library`表示挂载的变量名称，`libraryTarget`表示要挂载在哪里，比如填`this`表示挂载在全局的`this`上，填`window`表示挂载在`window`上，在`node`环境中填写`global`则挂载在全局的`global`上。
+
+### 20.2 externals
+
+之前我们`string.js`中的字符串拼接函数完全是自己写的，但是如果这个功能是使用的别人的库来实现的，比如`lodash`，我们安装`lodash`：
+
+```bash
+npm i lodash -S
+```
+
+更改`string.js`：
+
+```js
+// string.js
+
+import _ from 'lodash'
+
+export function join(a, b) {
+    return _.join([a, b], "")
+}
+```
+
+这时候我们重新打包，发现打包生成的文件达到了`70kb+`，相比原本的不到`2kb`增大了不少，这是因为我们引入了`lodash`，导致了整个库的大小急剧上升。
+
+假如别人在使用这个库时也引入`lodash`，就可能导致`lodash`重复打包的问题，这时可以在配置文件中新增`externals`：
+
+```js
+// webpack.common.js
+
+module.exports = {
+    // ...
+    externals： ["lodash"]
+}
+```
+
+这时重新打包，发现文件大小又变成了`1.6kb`，这个配置项的意思时在打包时如果遇到`lodash`，那么就忽略它，不将它打包到文件里。这样虽然不会重复打包，但是别人在使用这个库时，要手动引入`lodash`。
+
+
+
+### 20.3 将库发布到npm
+
+现在我们已经生成了打包后的文件`library.js`，怎样才能让别人方便地使用？
+
+首先需要修改`package.json`：
+
+```json
+{
+  // 如果要发布到npm，name一定不能和npm已有的库名字重复
+  "name": "library-mexion",
+  "version": "1.0.0",
+  "description": "",
+  //修改入口文件为打包生成的library.js
+  "main": "./dist/library.js",
+  "scripts": {
+    "build": "webpack"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "webpack": "^4.41.6",
+    "webpack-cli": "^3.3.11"
+  },
+  "dependencies": {
+    "lodash": "^4.17.15"
+  }
+}
+
+```
+
+然后我们需要拥有 [npm](https://www.npmjs.com)的账号，然后在命令行使用：
+
+```bash
+npm adduser
+```
+
+进行登录，然后通过：
+
+```bash
+npm publish
+```
+
+就能将这个库发布到`npm`上，别人就可以通过`npm install`命令进行安装使用了。
+
+
+
+## 21. PWA的打包
+
+要让项目在打包后支持`PWA`，我们需要先安装一个插件`workbox-webpack-plugin`：
+
+```bash
+npm i workbox-webpack-plugin -D
+```
+
+然后修改配置文件，因为只有要上线的代码才需要支持`PWA`，所以只要修改`webpack.prod.js`即可：
+
+```js
+// webpack.prod.js
+
+const WorkboxPlugin = require('workbox-webpack-plugin')
+
+const prodConfig = {
+    // ...
+    plugins: [
+        //新增workbox-plugin的配置
+        new WorkboxPlugin.GenerateSw({
+            //这里只配置了两个最常用的配置，更多配置可以查阅文档
+            //当有新的sw版本时立即跳过等待停止旧的sw并激活新的sw
+            //同时让激活的sw能够立即控制所有页面
+            clientsClaim: true,
+            skipWaiting: true
+        })
+    ]
+}
+```
+
+这时重新打包会在打包生成目录多生成两个文件，一个是`service-worker.js`，另一个是`precache-manifest.xxx.js`。但是这样还不行，要实现`PWA`我们还需要在业务代码中增加这样的代码：
+
+```js
+// index.js
+
+if('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        //注册，需要引入上面生成的`service-worker.js`
+        nabigator.serviceWorker.register('/service-worker.js').then(registration => {
+            // do sth...
+            console.log(registration)
+        }).catch(error => console.log(error))
+    })
+}
+```
+
+再次打包，这时`PWA`就可以生效。
+
+## 22. Typescript的打包
+
+首先安装`ts-loader`：
+
+```bash
+npm i ts-loader webpack -D
+```
+
+生成`Typescript`配置文件：
+
+```bash
+tsc --init
+```
+
+修改`Webpack`配置文件：
+
+```js
+// webpack.config.js
+
+const path = require('path')
+
+module.exports = {
+    mode: 'production',
+    entry: './src/index.ts',
+    output: {
+        filename: 'bundle.js',
+        path: path.resolve(__dirname, 'dist')
+    }
+    module: {
+    	//当遇到ts，tsx后缀的文件使用ts-loader来编译
+    	//并排除node_module中的文件
+        rules: [{
+    		test: /\.tsx?$/i,
+    		use: 'ts-loader',
+    		exclude: /node_modules/
+}]
+    }
+}
+```
+
+这时就可以完成`Typescript`的打包了。
+
+
+
+## 23. 在Webpack中配置EsLint
+
+`Eslint`是一个约束代码风格的工具。
+
+要使用`Eslint`，首先在项目中进行安装：
+
+```bash
+npm i eslint -D
+```
+
+然后运行命令：
+
+```bash
+npx eslint --init
+```
+
+根据提示选择需要的规范生成配置文件（这里我选择`airbnb`，同时选择生成以`javascript`编写的配置文件）：
+
+```js
+// .eslintrc.js
+
+module.exports = {
+    "extends": "airbnb"
+}
+```
+
+使用命令来使用`eslint`检查代码规范：
+
+```bash
+npx eslint src
+```
+
+这条命令的意思是检查`src`目录下的文件代码规范。
+
+当我们在`React`项目中使用时，会报出一些语法错误，这是因为在项目中使用了`React`的代码还需要额外的配置。
+
+首先安装`babel-eslint`：
+
+```bash
+npm i babel-eslint -D
+```
+
+修改配置文件：
+
+```js
+// .eslintrc.js
+
+module.exports = {
+    "extends": "airbnb",
+    // 新增parser
+    "parser": "babel-eslint"
+}
+```
+
+重新运行`npx eslint`，就可以对代码进行风格校验了。
+
+但是这样一行行地读一行行地改就太麻烦了，可以在编辑器中（如`VScode`）安装`EsLint`的插件，这时编辑器就会根据配置文件自动将风格不一致的代码标红。
+
+如果我们要禁用某一条规则，可以将对应的规则名（鼠标悬停标红代码显示的提示最后的部分）复制，在配置文件中进行如下配置：
+
+```js
+// .eslintrc.js
+
+module.exports = {
+    "extends": "airbnb",
+    "parser": "babel-eslint",
+    "rules": {
+        //禁用react/prefer-stateless-function这条规范
+        // 0 为禁用 1为警告 2为错误
+        "react/prefer-stateless-function": 0
+    }
+}
+```
+
+当访问未定义的变量时，`no-undef`会报出警告，如果想在文件中使用全局变量，使`Eslint`不报错，进行如下配置：
+
+```js
+// .eslintrc.js
+
+module.exports = {
+    "extends": "airbnb",
+    "parser": "babel-eslint",
+    "rules": {
+        "react/prefer-stateless-function": 0
+    },
+    "globals": {
+        // document不允许被覆盖
+        // readonly 不允许重写变量
+        // writable 允许重写变量
+        "document": "readonly"
+    }
+}
+```
+
+如果我们在编辑器中使用了`EsLint`的插件，那么在编辑器中就可以看到不符合规范的代码，但是如果没有使用插件的情况，就不会很直观的体现出来，使用命令行又会太麻烦或者很容易忘记。要解决这个问题可以让`Webpack`和`EsLint`结合起来，即便没有安装插件也可以方便地看到代码里的问题了。这需要`EsLint-loader`，首先安装：
+
+```bash
+npm i eslint-loader -D
+```
+
+修改配置文件：
+
+```js
+// webpack.config.js
+
+module.exports = {
+    ///...
+    module: {
+        rules: [{
+    		test: /\.js$/,
+            //新增了eslint-loader
+    		use: ['babel-loader', 'eslint-loader']
+        }]
+    },
+    devServer: {
+        //新增overlay为true
+        overlay: true
+    }
+}
+```
+
+当我们进行打包时，`js`文件会经过`eslint`校验，将不符合规范的地方输出在命令行中，同时我们在`devServer`中新增`overlay`为`true`， 出现编译器错误或警告时会在浏览器中显示一层全屏覆盖的浮层，将错误显示在上面，这样就可以实时查看不规范的代码。 
+
+## 24.Webpack性能优化
+
+打包大型项目时，可能`Webpack`打包会花费很长时间，这时就需要对`Webpack`的做性能优化，提升打包效率。
+
+### 24.1 跟上技术的迭代
+
+在使用的工具上，比如`Webpack`、`Node`、`Npm`、`Yarn`等工具的版本尽量升级到稳定的最新版本，因为这些工具在更新版本时可能会做一些优化，升级这些工具的版本从而间接达到提升打包速度的目的。
+
+### 24.2 在尽可能少的模块上应用Loader
+
+也就是-排除掉不该进行编译的模块，比如在使用`babel-loader`时，使用`exclude: /node_modules/`排除掉`node_module`文件夹下的文件，避免对`node_modules`下的文件进行无意义的编译，同样的，使用`include`指定文件编译也是优化的方法。
+
+### 24.3 Plugin尽可能精简并确保可靠
+
+确保`Plugin`只在需要使用的场景下使用，比如在线上模式下使用了`optimize-css-assets-plugin`来进行css代码的压缩，但是在开发模式下就不需要对代码进行压缩。没有必要使用的`Plugin`只会降低打包的速度。
+
+同时，使用的`Plugin`尽量选择官方推荐的，因为这些插件的性能往往经过了官方的测试，速度一般较快且可靠，但是第三方提供的可能会降低打包的速度。
