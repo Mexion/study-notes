@@ -2468,3 +2468,158 @@ module.exports = {
 确保`Plugin`只在需要使用的场景下使用，比如在线上模式下使用了`optimize-css-assets-plugin`来进行css代码的压缩，但是在开发模式下就不需要对代码进行压缩。没有必要使用的`Plugin`只会降低打包的速度。
 
 同时，使用的`Plugin`尽量选择官方推荐的，因为这些插件的性能往往经过了官方的测试，速度一般较快且可靠，但是第三方提供的可能会降低打包的速度。
+
+### 24.4 合理配置resolve参数
+
+比如我们在编写一个`React`网页，如果不加后缀名就引入`jsx`组件，那么是不能正确引入文件的，这时候就需要配置`resolve`配置项来配置模块如何解析：
+
+```js
+// webpack.config.js
+
+module.exports = {
+    //...
+    resolve: {
+        //extensions配置如何查找模块
+        extensions: [".js", ".jsx"]
+    }
+}
+```
+
+`extensions`参数规定了如何去查找模块，比如上面的配置，如果引入模块时不加后缀名，就会从左至右依次查找，先查找同名的`js`文件，查找到就直接解析，查找不到则查找`jsx`。**需要注意的是，配置了这个参数就会覆盖默认的参数。**
+
+但是`extensions`参数也不能一股脑地将所有后缀都配置上，因为一次次地查找会有性能损耗的，所以建议只是将`.js`、`.jsx`这类后缀名配置在`extensions`中，而其他文件在导入时都显式地书写后缀名。
+
+`resolve`除了可以配置`extensions`，还可以配置其他选项。比如要实现导入时只书写目录而不写具体的文件名就可以将默认的文件导入进来，默认情况下这样会自动引入目录下的`index`文件，可以配置`mainFiles`参数来修改解析目录时的文件名：
+
+```js
+// webpack.config.js
+
+module.exports = {
+    //...
+    resolve: {
+        extensions: [".js", ".jsx"],
+        //新增了mainFiles配置
+        mainFiles: ["index", "child"]
+    }
+}
+```
+
+这样配置会默认引入`index`文件，如果找不到则会继续查找`child`文件。但是这样配置也会带来性能上的问题，可以根据需要适当配置，一般建议不配。
+
+有时我们想通过一个特定的字符串来引入需要的模块：
+
+```js
+//想通过abc来引入Child模块
+import Child from 'abc'
+```
+
+这样显然是不行的，因为`abc`不是一个第三方模块，也没有指定特定的文件目录。要想达到效果可以这样配置：
+
+```js
+// webpack.config.js
+const path = require("path")
+
+module.exports = {
+    //...
+    resolve: {
+        extensions: [".js", ".jsx"],
+        mainFiles: ["index", "child"],
+        //新增了alias配置
+        alias: {
+            abc: path.resolve(__dirname, "../src/child")
+        }
+    }
+}
+```
+
+`alias`是别名的意思，这条配置的意思是`abc`这个别名指向了`../src/child`这个路径的文件，所以在导入时实际上导入的是这个路径下的文件。在路径特别长的时候，这个配置格外的有用。
+
+### 24.4 使用DllPlugin提高打包速度
+
+当我们使用第三方模块时，每次打包都会将第三方模块进行重新分析打包，但是第三方模块的代码是不会变的，如果可以只在第一次打包时去分析这些第三方模块，生成一个文件来保存分析结果，以后打包时就直接使用这份文件的结果进行打包，就可以优化打包速度。
+
+而`DllPlugin`就可以实现这样的效果，要使用`DllPlugin`，首先需要新建一个专门的`Webpack`配置文件，这里就命名为`webpack.dll.js`：
+
+```js
+// webpack.dll.js
+
+const path = require("path")
+const DllPlugin = require('webpack/lib/DllPlugin')
+
+module.exports = {
+    mode: "development",
+    entry: {
+        //把React等相关模块放到一个单独的动态链接库
+        react: ["react", "react-dom"]
+    },
+    output: {
+        //输出的动态链接库名称
+        filename: "[name].dll.js",
+        //输出目录
+        path: path.resolve(__dirname, "../dll"),
+        //存放动态链接库的全局变量名称，暴露到全局变量中
+        //加_dll_为了防止全局变量冲突
+        library: "_dll_[name]"
+    },
+    plugins: [
+        new DllPlugin({
+            //动态链接库的全局变量名称，要和上面library配置的一致
+            //该字段的值也就是输出的manifest.json文件中name字段的值
+            //例如 react.manifest.json中就有 "name": "_dll_react"
+            name: "_dll_[name]",
+            //描述动态链接库的manifest.json文件输出时的文件名
+            path: path.resolve(__dirname, "../dll/[name].manifest.json")
+        })
+    ]
+}
+```
+
+然后增加一个`script`脚本命令：
+
+```json
+// package.json
+
+{
+    "scripts": {
+        "dll": "webpack --config ./build/webpack.dll.js"
+    }
+}
+```
+
+这时运行这个命令，就会生成`dll`文件和`manifest`文件，`dll`文件就是预打包出来的结果，`manifest`文件是对`dll`的索引。
+
+我们需要在`html`中引入这个`dll`文件，可以使用`add-asset-html-webpack-plugin`，安装后修改配置文件：
+
+```js
+// webpack.dev.js
+
+const AddAssetHtmlWebpackPlugin = require("add-asset-html-webpack-plugin")
+
+module.exports = {
+    plugins: [
+        new AddAssetHtmlWebpackPlugin({
+            //需要往HtmlWebpackPlugin生成的html中增加的内容
+            filepath: path.resolve(__dirname, "../dll/react.dll.js")
+        })
+    ]
+}
+```
+
+这样只进行了第一步，生成并引入了`dll`文件，但是还没有结合`dll`文件和`manifest`索引文件进行映射使用，这时就需要使用`DllReferencePlugin`，配置如下：
+
+```js
+// webpack.dev.js
+
+const DllReferencePlugin = require("webpack/lib/DllReferencePlugin")
+module.exports = {
+    plugins: [
+        //新增DllReference插件并配置文件地址
+        new DllReferencePlugin({
+            manifest: path.resolve(__dirname, "../dll/react.manifest.json")
+        })
+    ]
+}
+```
+
+这样就使用了`dll`文件，当我们引入了第三方的模块时，就会去寻找对应的映射关系，如果找到了，那么就不会将这个模块打包进来了，而是直接从`dll`文件中拿来用就可以了，`dll`文件已经被引入到`html`中并且通过全局变量的方式暴露了出来。
+
