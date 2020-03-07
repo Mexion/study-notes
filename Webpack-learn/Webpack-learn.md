@@ -155,7 +155,7 @@ loader的使用如下：
 
 - 使用test正则来匹配需要打包的文件
 - 使用use来配置需要使用什么loader
-- 如果一个类型的文件需要使用多个loader，使用一个数组来含括这些loader，webpack会 **从下到上** ，**从右到左** 依次调用，如果loader的配置中有`force: 'pre'`，loader会先执行。
+- 如果一个类型的文件需要使用多个loader，使用一个数组来含括这些loader，webpack会 **从下到上** ，**从右到左** 依次调用，如果某个loader的配置中有`force: 'pre'`，该`loader`会先执行。
 
 
 
@@ -2534,7 +2534,7 @@ module.exports = {
 
 `alias`是别名的意思，这条配置的意思是`abc`这个别名指向了`../src/child`这个路径的文件，所以在导入时实际上导入的是这个路径下的文件。在路径特别长的时候，这个配置格外的有用。
 
-### 24.4 使用DllPlugin提高打包速度
+### 24.5 使用DllPlugin提高打包速度
 
 当我们使用第三方模块时，每次打包都会将第三方模块进行重新分析打包，但是第三方模块的代码是不会变的，如果可以只在第一次打包时去分析这些第三方模块，生成一个文件来保存分析结果，以后打包时就直接使用这份文件的结果进行打包，就可以优化打包速度。
 
@@ -2622,4 +2622,483 @@ module.exports = {
 ```
 
 这样就使用了`dll`文件，当我们引入了第三方的模块时，就会去寻找对应的映射关系，如果找到了，那么就不会将这个模块打包进来了，而是直接从`dll`文件中拿来用就可以了，`dll`文件已经被引入到`html`中并且通过全局变量的方式暴露了出来。
+
+### 24.6 合理开启多进程打包
+
+#### 24.6.1使用HappyPack
+
+由于运行在`Node.js`之上`Webpack`是单线程的，所以不能多线程，要同一时间处理多个任务，就需要开启多个进程，开启多进程打包可以配置`happypack`，首先安装`happypack`：
+
+```bash
+npm i happypack -D
+```
+
+然后修改配置文件：
+
+```js
+// webpack.common.js
+
+const Happypack = require("happypack")
+
+module.exports = {
+    module: {
+        rules: [
+            {
+                test: /\.js$/,
+                //js文件全部经由happypack，id是一个唯一值
+                //与下方happypack实例中的id对应，交给对应的happypack实例执行
+                use: ["happypack/loader?id=babel"],
+                exclude: /node_modules/
+            }
+        ]
+    },
+    plugins: [
+        new HappyPack({
+            //与上方的id对应，就会将文件交由这个happypack实例执行
+            id: "babel",
+            //将上方原本js文件使用的的loader全部写在这里
+            loaders: ["babel-loader?cacheDirectory=true"],
+            //共享进程池
+            threadPool: happyThreadPool,
+            //开启Happypack输出日志
+            verbose: true
+        })
+    ]
+}
+```
+
+> HappyPack 参数
+
+-  `id: String` 用唯一的标识符 id 来代表当前的 HappyPack 是用来处理一类特定的文件。
+-  `loaders: Array` 用法和 webpack Loader 配置中一样。
+-  `threads: Number` 代表开启几个子进程去处理这一类型的文件，默认是3个，类型必须是整数。
+-  `verbose: Boolean` 是否允许 HappyPack 输出日志，默认是 true。
+-  `threadPool: HappyThreadPool` 代表共享进程池，即多个 HappyPack 实例都使用同一个共享进程池中的子进程去处理任务，以防止资源占用过多。
+-  `verboseWhenProfiling: Boolean` 开启`webpack --profile` ,仍然希望HappyPack产生输出。
+-  `debug: Boolean`  启用debug 用于故障排查。默认 `false`。
+
+#### 24.6.2 ParallelUglifyPlugin多进程压缩JS
+
+`Webpack`内置了单线程压缩工具`UglifyJS`压缩`JS`，开启多进程压缩会更快。
+
+要开启多进程压缩需要`ParallelUglifyPlugin`，  当 `Webpack` 有多个 `JavaScript `文件需要输出和压缩时，原本会使用 `UglifyJS` 去一个个挨着压缩再输出， 但是 `ParallelUglifyPlugin `则会开启多个子进程，把对多个文件的压缩工作分配给多个子进程去完成，每个子进程其实还是通过 `UglifyJS `去压缩代码，但是变成了并行执行。 所以 `ParallelUglifyPlugin `能更快的完成对多个文件的压缩工作。 
+
+依然是安装：
+
+```bash
+npm i webpack-parallel-uglify-plugin -D
+```
+
+修改配置文件：
+
+```js
+// webpack.prod.js
+
+const ParallelUglifyPlugin = require('webpack-parallel-uglify-plugin')
+
+module.exports = {
+  plugins: [
+    // 使用 ParallelUglifyPlugin 并行压缩输出的 JS 代码
+    new ParallelUglifyPlugin({
+      // 传递给 UglifyJS 的参数
+      uglifyJS: {
+        output: {
+          // 最紧凑的输出
+          beautify: false,
+          // 删除所有的注释
+          comments: false,
+        },
+        compress: {
+          // 在UglifyJs删除没有用到的代码时不输出警告
+          warnings: false,
+          // 删除所有的 `console` 语句，可以兼容ie浏览器
+          drop_console: true,
+          // 内嵌定义了但是只用到一次的变量
+          collapse_vars: true,
+          // 提取出出现多次但是没有定义成变量去引用的静态值
+          reduce_vars: true,
+        }
+      },
+    }),
+  ],
+};
+```
+
+在通过 `new ParallelUglifyPlugin()` 实例化时，支持以下参数：
+
+- `test`：使用正则去匹配哪些文件需要被 ParallelUglifyPlugin 压缩，默认是 `/.js$/`，也就是默认压缩所有的 .js 文件。
+- `include`：使用正则去命中需要被 ParallelUglifyPlugin 压缩的文件。默认为 `[]`。
+- `exclude`：使用正则去命中不需要被 ParallelUglifyPlugin 压缩的文件。默认为 `[]`。
+- `cacheDir`：缓存压缩后的结果，下次遇到一样的输入时直接从缓存中获取压缩后的结果并返回。cacheDir 用于配置缓存存放的目录路径。默认不会缓存，想开启缓存请设置一个目录路径。
+- `workerCount`：开启几个子进程去并发的执行压缩。默认是当前运行电脑的 CPU 核数减去1。
+- `sourceMap`：是否输出 Source Map，这会导致压缩过程变慢。
+- `uglifyJS`：用于压缩 ES5 代码时的配置，Object 类型，直接透传给 UglifyJS 的参数。
+- `uglifyES`：用于压缩 ES6 代码时的配置，Object 类型，直接透传给 UglifyES 的参数。
+
+#### 24.6.3 要不要开启多进程
+
+关于要不要开启多进程的问题：
+
+- 如果项目较大，打包速度较慢，开启多进程可以提高打包速度。
+- 如果项目较小，原本打包很快，开启多进程反而会降低速度（进程开销）
+
+所以要考虑自身项目的情况考虑是否开启多进程。
+
+### 24.7 合理使用SourceMap
+
+`SourceMap`越详细打包速度就越慢，在做不同环境的打包的时候使用合理的`SourceMap`生成代码调错文件，达到最理想的效果。
+
+## 25.多页面打包配置
+
+之前的配置都是对单页面应用进行打包，所谓单页面应用就是只有一个`html`文件的应用，所有的页面切换都是通过`JS`替换对应的内容来实现的。多页面则是编写生成多个`html`文件，页面间切换都是真正的页面切换。那么多页面的打包该如何配置呢？
+
+比如我们希望有两个页面`index.htm`和`list.html`，两个`js`文件`index.js`和`list.js`，打包完成后`index.html`引入`index.js`，`list.html`引入`list.js`，但是如果我们按照原来的配置，在`entry`中新增一个入口文件，虽然最后会打包出两个`js`文件，但是也只会打包出一个`html`文件，并且这个`html`文件会将两个`js`文件全都引入。
+
+要想实现理想的效果，可以这样配置：
+
+```js
+// webpack.common.js
+
+const HtmlWebpackPlugin = require("html-webpack-plugin")
+
+module.exports = {
+   entry: {
+        index: "./src/index.js",
+        list: "./src/list.js"
+    },  
+    output: {       
+        filename: "[name].[contenthash].js",  
+        path: path.resolve(__dirname, 'dist') 
+    },
+    plugins: [
+        new HtmlWebpackPlugin({
+            template: "src/index.html",
+            //输出时的文件名
+            filename: "index.html",
+            //需要引入的文件，runtime和vendors为共用，main为私用
+            chunks: ["runtime", "vendors", "main"]
+        }),
+        //复制一份，生成多个实例，共用一份模板
+        new HtmlWebpackPlugin({
+            template: "src/index.html",
+            filename: "list.html",
+            chunks: ["runtime", "vendors", "list"]
+        })
+    ]
+}
+```
+
+
+
+## 26. 如何编写一个Loader
+
+### 26.1 一个简单的Loader
+
+> loader是一种打包的规则，它告诉Webpack在遇到非JS文件时该如何打包。
+
+那么有时候有自己写打包规则的需求，就可以自己写一个`loader`。
+
+首先新建一个目录`make-loader`，在目录中运行`npm init -y`，初始化为一个`npm  package`，在里面安装`Webpack`和`Webpack-cli`：
+
+```bash
+npm i webpack webpack-cli -D
+```
+
+创建一个文件夹`src`，在里面新建`index.js`，简单编写一句代码：
+
+```js
+// index.js
+
+console.log("Hello World")
+```
+
+要进行打包，依然是在根目录新建一个`webpack.config.js`:
+
+```js
+// webpack.config.js
+
+const path = require("path")
+
+module.exports = {
+    mode: "development",
+    entry: {
+        index: "./src/index.js"
+    },
+    output: {
+        filename: path.resolve(__dirname, "dist"),
+        filename: "[name].js"
+    }
+}
+```
+
+在`package.json`新增一个`script`脚本：
+
+```json
+// package.json
+
+{
+    "scripts": {
+        "build": "webpack"
+    }
+}
+```
+
+这时运行`npm run build`就可以打包完成。
+
+我们有一个需求，当打包`js`文件时，如果遇到`World`这个字符串就会改为`World!!!`，自动加三个感叹号，就可以通过`loader`进行修改，在根目录创建一个文件夹`loaders`，里面新建一个`replaceLoader.js`：
+
+```js
+// replaceLoader.js
+
+//所谓Loader本质是一个函数，注意一定要写普通函数
+//不能写箭头函数，否则this指向会有问题
+//接收一个参数source，为需要解析的文件的内容
+module.exports = function(source) {
+    //返回修改后的内容
+    return source.replace("World", "World!!!")
+}
+```
+
+可以看到，写一个`loader`非常简单，就是导入一个函数，接收内容，返回修改后的内容即可。
+
+修改配置文件：
+
+```js
+// webpack.config.js
+
+const path = require("path")
+
+module.exports = {
+  mode: "development",
+  entry: {
+    index: "./src/index.js"
+  },
+  module: {
+    //js文件使用自己的loader
+    rules: [{
+      test: /\.js$/,
+      use: [path.resolve(__dirname, "./loaders/replaceLoader.js")]
+    }]
+  },
+  output: {
+    filename: "[name].js",
+    path: path.resolve(__dirname, "dist")
+  }
+}
+```
+
+这时重新打包可以看到已经可以将`World`替换为`World!!!`了。
+
+### 26.2 如何使用配置参数
+
+当然上面只是一个简单的`loader`，我们使用的第三方`Loader`一般还可以使用一些配置参数，我们试着修改一下配置：
+
+```js
+// webpack.config.js
+
+const path = require("path")
+
+module.exports = {
+  mode: "development",
+  entry: {
+    index: "./src/index.js"
+  },
+  module: {
+    rules: [{
+      test: /\.js$/,
+      use: [{
+          loader: path.resolve(__dirname, "./loaders/replaceLoader.js"),
+          //新增了options配置参数
+          options: {
+              name: 'Your Name'
+          }
+      }]
+    }]
+  },
+  output: {
+    filename: "[name].js",
+    path: path.resolve(__dirname, "dist")
+  }
+}
+```
+
+修改`Loader`代码：
+
+```js
+// replaceLoader.js
+
+module.exports = function(source) {
+    return source.replace("World", this.query.name)
+}
+```
+
+可以看到我们给自己的`loader`新增了`options`配置参数，然后在`loader`代码里使用`this.query`来获取这些配置参数。
+
+重新打包，会发现已经可以拿到配置参数并成功替换了。
+
+但是官方已经说明`query`这个属性已经废弃，推荐我们使用`loader-utils`来提取`options`，我们试着用一下，首先安装：
+
+```bash
+npm i loader-utils -D
+```
+
+修改`Loader`代码：
+
+```js
+// replaceLoader.js
+
+const LoaderUtils = require("loader-utils")
+
+module.exports = function(source) {
+    //将this传递给getOptions()
+    const options = LoaderUtils.getOptions(this)
+    //直接通过options获取参数
+    return source.replace("World", options.name)
+}
+```
+
+重新打包发现结果一样。
+
+更多的`loader-api`可以查看官方文档的`loader-api`部分。
+
+### 26.3 resolveLoader解析loader
+
+我们使用`loader`时每次都要写`path.resolve(__dirname, "./loaders/replaceLoader.js")`这么一大串，很不方便，有没有方法让`Webpack`可以根据命名自动帮助我们解析`loader`的位置呢？
+
+可以在配置文件中增加`resolveLoader`配置：
+
+```js
+// webpack.config.js
+
+const path = require("path")
+
+module.exports = {
+  mode: "development",
+  entry: {
+    index: "./src/index.js"
+  },
+    //新增了resolveLoaders配置
+   resolveLoader: {
+       modules: ["node_modules", "./loaders"]
+   }
+  module: {
+    rules: [{
+      test: /\.js$/,
+      use: [{
+    		//只写名称
+          loader: "replaceLoader",
+          options: {
+              name: 'Your Name'
+          }
+      }]
+    }]
+  },
+  output: {
+    filename: "[name].js",
+    path: path.resolve(__dirname, "dist")
+  }
+}
+```
+
+这个配置会根据`Loader`名称，先去`node_modules`文件夹寻找，找不到会继续到`./loaders`目录寻找。
+
+## 27.如何编写一个Plugin
+
+> **Plugin会在Webpack运行到某个时刻时，自动帮助我们去做一些事情。**
+
+我们现在有一个需求，当我们打包结束时，希望生成一个有关版权信息的文件`copyright.txt`。基于上面的项目，我们首先在根目录生成一个`plugins`文件夹，在里面新建一个`copyright-webpack-plugin.js`：
+
+```js
+// copyright-webpack-plugins.js
+
+//plugin是一个类
+class CopyrightWebpackPlugin {
+   //配置的属性会以options这个参数传入
+  constructor(options) {
+    console.log("插件被使用了")
+    console.log(options)
+  }
+	//使用plugin时会自动调用apply方法
+    //compiler可以理解为webpack的一个实例
+  apply(compiler) {
+    console.log("apply被使用了")
+  }
+}
+
+module.exports = CopyrightWebpackPlugin
+```
+
+这时修改配置文件使用：
+
+```js
+// webpack.config.js
+
+const path = require("path")
+const CopyrightWebpackPlugin = require("./plugins/copyright-webpack-plugin")
+
+module.exports = {
+	plugins: [
+       new CopyrightWebpackPlugin({
+      name: "a test name"
+    }) 
+    ]
+}
+```
+
+重新打包，会发现控制台打印了：
+
+```bash
+插件被使用了
+{ name: 'a test name' }
+apply被使用了
+```
+
+但是现在这个插件还没有做任何事情，我们想要在打包结束时增加一个文件还需要继续编写。
+
+`plugin`中的`apply`方法中的`complier`参数中提供了一些钩子（在某一时刻会自动执行的函数），具体有哪些钩子可以查阅文档`API -> PLUGINS -> Compiler Hooks`。
+
+我们要实现的效果需要的钩子为`emit`，这个钩子的执行时机为生成资源到`output`目录之前，这个钩子是一个异步钩子（ `AsyncSeriesHook` ），所以我们需要写`tapAsync`：
+
+```js
+// copyright-webpack-plugin.js
+
+class CopyrightWebpackPlugin {
+  apply(compiler) {
+      //tapAsync接收两个函数，第一个参数为插件名，第二个函数有两个参数
+      //第一个参数为compilation，为本次打包的一些内容
+      //第二个参数为cb，是一个回调函数
+    compiler.hooks.emit.tapAsync("CopyrightWebpackPlugin", (compilation, cb) => {
+        //打包生成哪些内容是由compilation.assets决定的
+        //所以我们可以给这个对象新增属性
+        compilation.assets["copyright.txt"] = {
+        //文件内容
+        source: function () {
+          return "This is a copyright file by Mexion"
+        },
+        //文件长度，33个字节
+        size: function () {
+          return 33
+        }
+      }
+      //异步钩子结束时要执行一下cb
+      cb()
+    })
+  }
+}
+
+module.exports = CopyrightWebpackPlugin
+```
+
+这时重新打包，发现`dist`文件夹下果然新增了`copyright.txt`文件，内容也与`source`相同，大小为`33bytes`。
+
+如果是同步钩子可以这么写：
+
+```js
+// compile是一个同步钩子
+//直接使用tap即可
+//也没有cb参数了
+compiler.hooks.compile.tap("CopyrightWebpackPlugin", (compilation) => {
+    console.log("compile")
+})
+```
 
