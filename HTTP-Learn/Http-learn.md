@@ -664,7 +664,7 @@ Content-Security-Policy: default-src 'self'; report-uri http://reportcollector.e
 `JSONP`需要客户端和服务端约定好一个参数名和函数名，客户端生成一个处理数据的函数，参数为要从服务端接收的数据，在内部对这个数据进行处理。客户端通过`<script>`标签传递这个函数的函数名给服务端，比如：
 
 ```html
-<script src="https://forexample.com?callback=show">
+<script src="https://forexample.com?callback=show"></script>
 ```
 
 这里`uri`携带的参数名为`callback`，函数名为`show`。
