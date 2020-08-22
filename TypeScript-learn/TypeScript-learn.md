@@ -2939,10 +2939,10 @@ npm i typescript -D
 因为`ESLint`是对`ES`进行类型检查，对`TS`进行检查会有兼容问题，所以需要使用`typescript-eslint`项目进行解决。
 我们在之前的项目中进行改造，首先安装`eslint`、`@typescript-eslint/eslint-plugin（能够使ESLint识别一些特殊语法）`、`@typescript-eslint/parser（为ESLint提供解析器）`。
 
-然后我们在根目录创建`eslintrc.json`配置文件：
+然后我们在根目录创建`.eslintrc.json`配置文件：
 
 ```json
-// eslintrc.json
+// .eslintrc.json
 
 {
     //指定解析器
