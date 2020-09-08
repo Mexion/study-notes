@@ -994,7 +994,7 @@ OK
 (integer) 2
 ```
 
-## ZRANGE 查看指定区间成员
+## ZRANGE 从低到高查看指定区间成员
 
 `ZRANGE key start stop [WITHSCORES]`返回有序集中，指定区间内的成员。
 
@@ -1021,5 +1021,698 @@ OK
 2) "1"
 3) "two"
 4) "2"
+```
+
+## ZREVRANGE 从高到低查看指定区间成员
+
+`ZREVRANGE key start stop [WITHSCORES]`返回有序集中，指定区间内的成员。
+
+其中成员的位置按分数值递减(从大到小)来排序。
+
+具有相同分数值的成员按字典序逆序来排列。
+
+如果你需要成员按值递减(从大到小)来排列，请使用 `ZREVRANGE`命令。
+
+下标参数 `start` 和 `stop` 都以 `0` 为底，也就是说，以 `0` 表示有序集第一个成员，以 `1` 表示有序集第二个成员，以此类推。
+
+你也可以使用负数下标，以 `-1` 表示最后一个成员， `-2` 表示倒数第二个成员，以此类推。
+
+`WITHSCORES`选项可以让分数也一并返回。
+
+```bash
+127.0.0.1:6379[1]> ZADD zset 1 one 2 two
+(integer) 2
+127.0.0.1:6379[1]> ZREVRANGE zset 0 -1
+1) "two"
+2) "one"
+127.0.0.1:6379[1]> ZREVRANGE zset 0 -1 WITHSCORES
+1) "two"
+2) "2"
+3) "one"
+4) "1"
+```
+
+## ZRANGEBYSCORE 从小到大返回指定分数区间的成员
+
+`ZRANGEBYSCORE key min max [WITHSCORES] [LIMIT offset count]`命令返回指定分数区间的成员列表。
+
+`min`和`max`指定分数区间，包括分数等于`min`或者`max`的成员（闭区间），如果要指定开区间，可以在`min`或者`max`前增加`(`符号。 `min`和`max`可以是`-inf`和`+inf`，让你不需要知道的有序集合最高或最低分数来自或达到一定的分数获得的所有元素。 这些元素按照分数**从低到高**排序。
+
+`LIMIT offset count`的用法 和`SQL`中的基本一致，从`offset`开始，取`count`条，比如`LIMIT 2  2`，就是从第二条开始取两条。 注意当 `offset` 很大时，定位 `offset` 的操作可能需要遍历整个有序集，此过程最坏复杂度为 `O(N)` 时间。 
+
+```bash
+127.0.0.1:6379[1]> ZADD zset 1 one 2 two 3 three 4 four 5 five 6 six
+(integer) 6
+127.0.0.1:6379[1]> ZRANGEBYSCORE zset 2 5
+1) "two"
+2) "three"
+3) "four"
+4) "five"
+127.0.0.1:6379[1]> ZRANGEBYSCORE zset 2 5 WITHSCORES
+1) "two"
+2) "2"
+3) "three"
+4) "3"
+5) "four"
+6) "4"
+7) "five"
+8) "5"
+127.0.0.1:6379[1]> ZRANGEBYSCORE zset (2 5 WITHSCORES
+1) "three"
+2) "3"
+3) "four"
+4) "4"
+5) "five"
+6) "5"
+127.0.0.1:6379[1]> ZRANGEBYSCORE zset -inf +inf
+1) "one"
+2) "two"
+3) "three"
+4) "four"
+5) "five"
+6) "six"
+127.0.0.1:6379[1]> ZRANGEBYSCORE zset -inf +inf LIMIT 2 2
+1) "three"
+2) "four"
+```
+
+## ZRANGEBYLEX 通过字典区间返回成员
+
+`ZRANGEBYLEX key min max [LIMIT offset count]`命令通过字典区间返回有序集合的成员。
+
+当有序集合的所有成员都具有相同的分值时， 有序集合的元素会根据成员的字典序来进行排序， 而这个命令则可以返回给定的有序集合键 `key` 中， 值介于 `min` 和 `max` 之间的成员。
+
+如果有序集合里面的成员带有不同的分值， 那么命令返回的结果是未指定的。
+
+命令会使用 `C 语言`的 `memcmp()` 函数， 对集合中的每个成员进行逐个字节的对比， 并按照从低到高的顺序， 返回排序后的集合成员。 如果两个字符串有一部分内容是相同的话， 那么命令会认为较长的字符串比较短的字符串要大。
+
+可选的 `LIMIT offset count` 参数用于获取指定范围内的匹配元素 。 需要注意的一点是， 如果 `offset` 参数的值非常大的话， 那么命令在返回结果之前， 需要先遍历至 `offset` 所指定的位置， 这个操作会为命令加上最多 `O(N) `复杂度。
+
+合法的 `min` 和 `max` 参数必须包含 `(` 或者 `[` ， 其中 `(` 表示开区间（指定的值不会被包含在范围之内）， 而 `[` 则表示闭区间（指定的值会被包含在范围之内）。
+
+特殊值 `+` 和 `-` 在 `min` 参数以及 `max` 参数中具有特殊的意义， 其中 `+` 表示正无限， 而 `-` 表示负无限。 因此， 向一个所有成员的分值都相同的有序集合发送命令 `ZRANGEBYLEX - +` ， 命令将返回有序集合中的所有元素。
+
+```bash
+127.0.0.1:6379> ZADD myzset 0 a 0 b 0 c 0 d 0 e 0 f 0 g
+(integer) 7
+
+127.0.0.1:6379> ZRANGEBYLEX myzset - [c
+1) "a"
+2) "b"
+3) "c"
+
+127.0.0.1:6379 ZRANGEBYLEX myzset - (c
+1) "a"
+2) "b"
+
+127.0.0.1:6379> ZRANGEBYLEX myzset [aaa (g
+1) "b"
+2) "c"
+3) "d"
+4) "e"
+5) "f"
+```
+
+
+
+## ZREVRANGEBYSCORE 从大到小返回指定分数区间的成员
+
+`ZREVRANGEBYSCORE key max min [WITHSCORES] [LIMIT offset count]`命令返回指定分数区间的成员列表。
+
+`max`和`min`指定分数区间，包括分数等于`max`或者`min`的成员（闭区间），如果要指定开区间，可以在`max`或者`min`前增加`(`符号。 `max`和`min`可以是`+inf`和`-inf`，让你不需要知道的有序集合最高或最低分数来自或达到一定的分数获得的所有元素。 这些元素按照分数**从高到低**排序。
+
+`LIMIT offset count`的用法 和`SQL`中的基本一致，从`offset`开始，取`count`条，比如`LIMIT 2  2`，就是从第二条开始取两条。 注意当 `offset` 很大时，定位 `offset` 的操作可能需要遍历整个有序集，此过程最坏复杂度为 `O(N)` 时间。 
+
+```bash
+127.0.0.1:6379[1]> ZADD zset 1 one 2 two 3 three 4 four 5 five 6 six
+(integer) 6
+127.0.0.1:6379[1]> ZREVRANGEBYSCORE zset +inf -inf
+1) "six"
+2) "five"
+3) "four"
+4) "three"
+5) "two"
+6) "one"
+127.0.0.1:6379[1]> ZREVRANGEBYSCORE zset 4 1 WITHSCORES
+1) "four"
+2) "4"
+3) "three"
+4) "3"
+5) "two"
+6) "2"
+7) "one"
+8) "1"
+127.0.0.1:6379[1]> ZREVRANGEBYSCORE zset 4 1 WITHSCORES LIMIT 1 2
+1) "three"
+2) "3"
+3) "two"
+4) "2"
+```
+
+## ZRANK 返回指定成员从小到大的排名
+
+`ZRANK key member` 返回有序集 `key` 中成员 `member` 的排名。其中有序集成员按 `score` 值递增(从小到大)顺序排列。 
+
+ 排名以 `0` 为底，也就是说， `score` 值最小的成员排名为 `0` 。 
+
+```bash
+127.0.0.1:6379> ZADD zset 1 one 2 two 3 three 4 four 5 five
+(integer) 5
+127.0.0.1:6379> ZRANK zset one
+(integer) 0
+127.0.0.1:6379> ZRANK zset four
+(integer) 3
+```
+
+## ZREVRANK 返回指定成员从大到小的排名
+
+`ZREVRANK key member` 返回有序集 `key` 中成员 `member` 的排名。其中有序集成员按 `score` 值递减(从大到小)顺序排列。 
+
+ 排名以 `0` 为底，也就是说， `score` 值最大的成员排名为 `0` 。 
+
+```bash
+127.0.0.1:6379> ZADD zset 1 one 2 two 3 three 4 four 5 five
+(integer) 5
+127.0.0.1:6379> ZREVRANK zset one
+(integer) 4
+127.0.0.1:6379> ZREVRANK zset four
+(integer) 1
+```
+
+## ZCARD 返回所有成员数量
+
+`ZCARD key`可以返回有序集合中成员的数量。
+
+```bash
+127.0.0.1:6379> ZADD zset 1 one 2 two 3 three
+(integer) 3
+127.0.0.1:6379> ZCARD zset
+(integer) 3
+```
+
+## ZCOUNT  返回指定区间的成员数量
+
+`ZCOUNT key min max`返回有序集合中指定分数区间的成员数量。
+
+```bash
+127.0.0.1:6379> ZADD zset 1 one 2 two 3 three
+(integer) 3
+127.0.0.1:6379> ZCOUNT zset 2 3
+(integer) 2
+127.0.0.1:6379> ZCOUNT zset 2 2
+(integer) 1
+127.0.0.1:6379> ZCOUNT zset (2 3
+(integer) 1
+```
+
+## ZLEXCOUNT 通过字典区间返回指定范围的成员
+
+`ZLEXCOUNT key min max` 对于一个所有成员的分值都相同的有序集合键 `key` 来说， 这个命令会返回该集合中， 成员介于 `min` 和 `max` 范围内的元素数量。 
+
+```bash
+127.0.0.1:6379> ZADD myzset 0 a 0 b 0 c 0 d 0 e
+(integer) 5
+
+127.0.0.1:6379> ZADD myzset 0 f 0 g
+(integer) 2
+
+127.0.0.1:6379> ZLEXCOUNT myzset - +
+(integer) 7
+
+127.0.0.1:6379> ZLEXCOUNT myzset [b [f
+(integer) 5
+```
+
+
+
+## ZSCORE 返回指定成员的分数
+
+`ZSCORE key member`返回有序集 `key` 中，成员 `member` 的 `score` 值。
+
+如果 `member` 元素不是有序集 `key` 的成员，或 `key` 不存在，返回 `nil` 。
+
+```bash
+127.0.0.1:6379> ZADD zset 2 a
+(integer) 1
+127.0.0.1:6379> ZSCORE zset a
+"2"
+```
+
+
+
+## ZINCRBY 为成员指定增量
+
+`ZINCRBY key increment menber`为有序集 `key` 的成员 `member` 的 `score` 值加上增量 `increment` 。
+
+可以通过传递一个负数值 `increment` ，让 `score` 减去相应的值，比如 `ZINCRBY key -5 member` ，就是让 `member` 的 `score` 值减去 `5` 。
+
+当 `key` 不存在，或 `member` 不是 `key` 的成员时， `ZINCRBY key increment member` 等同于 `ZADD key increment member` 。
+
+当 `key` 不是有序集类型时，返回一个错误。
+
+`score` 值可以是整数值或双精度浮点数。
+
+```bash
+127.0.0.1:6379> ZADD zset 1 a
+(integer) 1
+127.0.0.1:6379> ZINCRBY zset 4 a
+"5"
+127.0.0.1:6379> ZSCORE zset a
+"5"
+127.0.0.1:6379> ZINCRBY zset -2 a
+"3"
+127.0.0.1:6379> ZSCORE zset a
+"3"
+```
+
+## ZREM 移除一个或多个成员
+
+`ZREM key member [member2 ...]`命令用于移除有序集中的一个或多个成员，不存在的成员将被忽略。
+
+当 `key` 存在但不是有序集类型时，返回一个错误。
+
+```bash
+127.0.0.1:6379> ZADD zset 1 one 2 two 3 three
+(integer) 3
+127.0.0.1:6379> ZREM zset one two
+(integer) 2
+127.0.0.1:6379> ZRANGE zset 0 -1
+1) "three"
+```
+
+## ZREMRANGEBYRANK 移除指定排名区间内的所有成员
+
+`ZREMRANGEBYRARNK key start stop`命令用于移除有序集中，指定排名区间内的所有成员。
+
+```bash
+127.0.0.1:6379> ZADD zset 1 one 2 two 3 three
+(integer) 3
+127.0.0.1:6379> ZREMRANGEBYRANK zset 0 1
+(integer) 2
+127.0.0.1:6379> ZRANGE zset 0 -1
+1) "three"
+```
+
+## ZREMRANGEBYSCORE 移除指定分数区间内的所有成员
+
+`ZREMRANGEBYSCORE key min max` 命令用于移除有序集中，指定分数区间内的所有成员。 
+
+```bash
+127.0.0.1:6379> ZADD zset 1 one 2 two 3 three
+(integer) 3
+127.0.0.1:6379> ZREMRANGEBYSCORE zset 2 3
+(integer) 2
+127.0.0.1:6379> ZRANGE zset 0 -1
+1) "one"
+```
+
+## ZREMRANGEBYLEX 移除给定字典区间的所有成员
+
+`ZREMRANGEBYLEX key min max`命令用于移除有序集合中，指定字典区间的所有成员。
+
+```bash
+127.0.0.1:6379> ZADD myzset 0 aaaa 0 b 0 c 0 d 0 e
+(integer) 5
+
+127.0.0.1:6379> ZADD myzset 0 foo 0 zap 0 zip 0 ALPHA 0 alpha
+(integer) 5
+
+127.0.0.1:6379> ZRANGE myzset 0 -1
+1) "ALPHA"
+2) "aaaa"
+3) "alpha"
+4) "b"
+5) "c"
+6) "d"
+7) "e"
+8) "foo"
+9) "zap"
+10) "zip"
+
+127.0.0.1:6379> ZREMRANGEBYLEX myzset [alpha [omega
+(integer) 6
+
+127.0.0.1:6379> ZRANGE myzset 0 -1
+1) "ALPHA"
+2) "aaaa"
+3) "zap"
+4) "zip"
+```
+
+## ZINTERSTORE 将多个有序集合的交集存储到另一有序集合中
+
+`ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]`命令 计算给定的一个或多个有序集的交集，其中给定 `key` 的数量必须以 `numkeys` 参数指定，并将该交集储存到 `destination` 。 
+
+使用 `WEIGHTS` 选项，你可以为 *每个* 给定有序集 *分别* 指定一个乘法因子，每个给定有序集的所有成员的 `score` 值在传递给聚合函数之前都要先乘以该有序集的因子。
+
+如果没有指定 `WEIGHTS` 选项，乘法因子默认设置为 `1` 。
+
+使用 `AGGREGATE` 选项，你可以指定交集的结果集的聚合方式。
+
+默认使用的参数 `SUM` ，可以将所有集合中某个成员的 `score` 值之 *和* 作为结果集中该成员的 `score` 值；使用参数 `MIN` ，可以将所有集合中某个成员的 *最小* `score` 值作为结果集中该成员的 `score` 值；而参数 `MAX` 则是将所有集合中某个成员的 *最大* `score` 值作为结果集中该成员的 `score` 值。
+
+```bash
+127.0.0.1:6379> ZADD mid_test 70 "Li Lei"
+(integer) 1
+redis 127.0.0.1:6379> ZADD mid_test 70 "Han Meimei"
+(integer) 1
+redis 127.0.0.1:6379> ZADD mid_test 99.5 "Tom"
+(integer) 1
+
+127.0.0.1:6379> ZADD fin_test 88 "Li Lei"
+(integer) 1
+redis 127.0.0.1:6379> ZADD fin_test 75 "Han Meimei"
+(integer) 1
+redis 127.0.0.1:6379> ZADD fin_test 99.5 "Tom"
+(integer) 1
+
+127.0.0.1:6379> ZINTERSTORE sum_point 2 mid_test fin_test
+(integer) 3
+
+
+127.0.0.1:6379> ZRANGE sum_point 0 -1 WITHSCORES     
+1) "Han Meimei"
+2) "145"
+3) "Li Lei"
+4) "158"
+5) "Tom"
+6) "199"
+
+```
+
+## ZUIONSTORE 将多个有序集合的并集存储到另一有序集合中
+
+`ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]`将多个有序集合的并集存储到`destination`中。用法与`ZINTERSTORE`一致。
+
+```bash
+127.0.0.1:6379> ZRANGE programmer 0 -1 WITHSCORES
+1) "peter"
+2) "2000"
+3) "jack"
+4) "3500"
+5) "tom"
+6) "5000"
+
+127.0.0.1:6379> ZRANGE manager 0 -1 WITHSCORES
+1) "herry"
+2) "2000"
+3) "mary"
+4) "3500"
+5) "bob"
+6) "4000"
+
+127.0.0.1:6379> ZUNIONSTORE salary 2 programmer manager WEIGHTS 1 3  
+(integer) 6
+
+127.0.0.1:6379> ZRANGE salary 0 -1 WITHSCORES
+1) "peter"
+2) "2000"
+3) "jack"
+4) "3500"
+5) "tom"
+6) "5000"
+7) "herry"
+8) "6000"
+9) "mary"
+10) "10500"
+11) "bob"
+12) "12000"
+```
+
+## ZSAN 迭代有序集合中的成员
+
+`ZSAN key cursor [MATCH pattern] [COUNT count]`命令用于迭代有序集合中的元素（包括元素成员和元素分值）。
+
+- `cursor` - 游标。
+- `pattern` - 匹配的模式。
+- `count` - 指定从数据集里返回多少元素，默认值为 `10` 。
+
+```bash
+127.0.0.1:6379> ZADD site 1 "Google" 2 "Tencent" 3 "Taobao" 4 "Weibo"
+(integer) 4
+127.0.0.1:6379> ZSCAN site 0
+1) "0"
+2) 1) "Google"
+   2) "1"
+   3) "Tencent"
+   4) "2"
+   5) "Taobao"
+   6) "3"
+   7) "Weibo"
+   8) "4"
+```
+
+## Redis Hash命令
+
+ `Redis hash` 是一个 `string` 类型的 `field（字段）` 和 `value（值）` 的映射表，`hash` 特别适合用于存储对象。 
+
+## HSET 设置hash字段
+
+`HSET hash field value`命令用于将`hash`中的`field`的值设置成`value`。
+
+如果给定的哈希表并不存在， 那么一个新的哈希表将被创建并执行 `HSET` 操作。
+
+如果域 `field` 已经存在于哈希表中， 那么它的旧值将被新值 `value` 覆盖。
+
+ 当 `HSET` 命令在哈希表中新创建 `field` 域并成功为它设置值时， 命令返回 `1` ； 如果域 `field` 已经存在于哈希表， 并且 `HSET` 命令成功使用新值覆盖了它的旧值， 那么命令返回 `0` 。 
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+```
+
+## HGET 获取hash字段
+
+`HGET hash field`命令在默认情况下返回给定字段的值。
+
+如果给定字段不存在于哈希表中， 又或者给定的哈希表并不存在， 那么命令返回 `nil` 。
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+127.0.0.1:6379> HGET website google
+"www.google.com"
+```
+
+## HSETNX 仅当字段未存在于hash中时设置值
+
+`HSETNX hash field value`用法与`HSET`一致，但仅当 `field` 尚未存在于哈希表的情况下， 将它的值设置为 `value` 。
+
+如果给定字段已经存在于哈希表当中， 那么命令将放弃执行设置操作。
+
+如果哈希表 `hash` 不存在， 那么一个新的哈希表将被创建并执行 `HSETNX` 命令。
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+127.0.0.1:6379> HSETNX website tencent "www.tencent.com"
+(integer) 1
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 0
+```
+
+## HMSET 将多个键值对设置到hash中
+
+`HMSET hash field value [field value ...]`同时将多个 `field-value` (字段-值)对设置到哈希表 `hash` 中。
+
+此命令会覆盖哈希表中已存在的字段。
+
+如果 `hash` 不存在，一个空哈希表被创建并执行`HMSET`操作。
+
+```bash
+127.0.0.1:6379> HMSET website google www.google.com yahoo www.yahoo.com
+OK
+127.0.0.1:6379> HGET website google
+"www.google.com"
+127.0.0.1:6379> HGET website yahoo
+"www.yahoo.com"
+```
+
+## HMGET 返回一个或多个给定字段的值
+
+`HMGET hash field [field ...]`返回哈希表中一个或多个字段的值。
+
+如果给定的字段不存在于哈希表，那么返回一个 `nil` 值。
+
+```bash
+127.0.0.1:6379> HMSET pet dog "doudou" cat "nounou"    
+OK
+
+127.0.0.1:6379> HMGET pet dog cat fake_pet   
+1) "doudou"
+2) "nounou"
+3) (nil) 
+```
+
+
+
+## HEXISTS 检查字段是否在hash中
+
+`HEXISTS hash field`检查给定域 `field` 是否存在于哈希表 `hash` 当中。
+
+存在时返回 `1` ， 不存在时返回 `0`。
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+127.0.0.1:6379> HEXISTS website google
+(integer) 1
+```
+
+## HLEN 返回hash中字段数量
+
+`HLEN hash`返回该`hash`中字段的数量。
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+127.0.0.1:6379> HSETNX website tencent "www.tencent.com"
+(integer) 1
+127.0.0.1:6379> HLEN website
+(integer) 2
+```
+
+## HSTRLEN 返回给定字段相关联的值的字符串长度
+
+`HSTRLEN hash field`返回哈希表 `hash` 中， 与给定字段 `field` 相关联的值的字符串长度。
+
+如果给定的键或者字段不存在， 那么命令返回 `0` 。
+
+```bash
+127.0.0.1:6379> HMSET myhash f1 "HelloWorld" f2 "99" f3 "-256"
+OK
+
+127.0.0.1:6379> HSTRLEN myhash f1
+(integer) 10
+
+127.0.0.1:6379> HSTRLEN myhash f2
+(integer) 2
+
+127.0.0.1:6379> HSTRLEN myhash f3
+(integer) 4
+```
+
+
+
+## HGETALL 返回hash中所有的字段和值
+
+`HGETALL hash`返回`hash`中所有的字段和值。 在返回值里，紧跟每个字段之后是字段的值，所以返回值的长度是哈希表大小的两倍。 
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+127.0.0.1:6379> HSETNX website tencent "www.tencent.com"
+(integer) 1
+127.0.0.1:6379> HGETALL website
+1) "google"
+2) "www.google.com"
+3) "tencent"
+4) "www.tencent.com"
+```
+
+## HKEYS 返回hash中所有的字段
+
+`HKEYS hash`返回哈希表中所有字段。
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+127.0.0.1:6379> HSETNX website tencent "www.tencent.com"
+(integer) 1
+127.0.0.1:6379> HKEYS website
+1) "google"
+2) "tencent"
+```
+
+## HVALS  返回hash中所有的值
+
+`HVALS hash`返回哈希表汇总所有的值。
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+127.0.0.1:6379> HSETNX website tencent "www.tencent.com"
+(integer) 1
+127.0.0.1:6379> HVALS website
+1) "www.google.com"
+2) "www.tencent.com"
+```
+
+
+
+## HDEL 删除hash中一个或多个字段
+
+`HDEL hash field [field ...]`删除`hash`中一个或多个指定字段，不存在的字段将被忽略。
+
+```bash
+127.0.0.1:6379> HSET website google "www.google.com"
+(integer) 1
+127.0.0.1:6379> HSETNX website tencent "www.tencent.com"
+(integer) 1
+127.0.0.1:6379> HDEL website tencent
+(integer) 1
+127.0.0.1:6379> HVALS website
+1) "www.google.com"
+```
+
+
+
+## HINCRBY 为指定字段的值加上增量
+
+`HINCRBY hash field increment`为哈希表 `hash` 中的字段 `field` 的值加上增量 `increment` 。
+
+增量也可以为负数，相当于对给定域进行减法操作。
+
+如果 `hash` 不存在，一个新的哈希表被创建并执行 `HINCRBY`命令。
+
+如果字段 `field` 不存在，那么在执行命令前，字段的值被初始化为 `0` 。
+
+对一个储存字符串值的字段 `field` 执行 `HINCRBY`命令将造成一个错误。
+
+```bash
+127.0.0.1:6379> HSET counter views 10
+(integer) 1
+127.0.0.1:6379> HINCRBY counter views 5
+(integer) 15
+127.0.0.1:6379> HGET counter views
+"15"
+```
+
+## HINCRBYFLOAT 为指定字段的值加上浮点数增量
+
+`HINCRBYFLOAT hash field increment`为哈希表 `hash` 中的字段 `field` 的值加上浮点数增量 `increment` 。
+
+```bash
+127.0.0.1:6379> HSET counter views 10
+(integer) 1
+127.0.0.1:6379> HINCRBY counter views 5
+(integer) 15
+127.0.0.1:6379> HGET counter views
+"15"
+127.0.0.1:6379> HINCRBYFLOAT counter views 1.5
+"16.5"
+```
+
+## HSCAN 迭代hash
+
+`HSCAN hash cursor [MATCH pattern] [COUNT count]`用于迭代哈希表中的键值对。
+
+- `cursor` - 游标。
+- `pattern` - 匹配的模式。
+- `count` - 指定从数据集里返回多少元素，默认值为 `10` 。
+
+```bash
+127.0.0.1:6379> HMSET website google www.google.com tencent www.tencent.com yahoo www.yahoo.com baidu www.baidu.com
+OK
+127.0.0.1:6379> HSCAN website 0
+1) "0"
+2) 1) "google"
+   2) "www.google.com"
+   3) "tencent"
+   4) "www.tencent.com"
+   5) "yahoo"
+   6) "www.yahoo.com"
+   7) "baidu"
+   8) "www.baidu.com"
 ```
 
