@@ -37,7 +37,7 @@ OK
 ```
 
 
- # Redis key命令
+ # Redis key
 
 ## EXISTS 查看key是否存在
 
@@ -190,7 +190,7 @@ OK
 
 
 
-# Redis String命令
+# Redis String
 
  ##  SET 保存
 
@@ -425,7 +425,7 @@ OK
 "xiaoming"
 ```
 
-# Redis List命令
+# Redis List
 
 `Redis`列表是简单的字符串列表，按照插入顺序排序。你可以添加一个元素到列表的头部（左边）或者尾部（右边）
 
@@ -722,7 +722,7 @@ OK
 3) "4"
 ```
 
-# Redis Set命令
+# Redis Set
 
 `Redis` 的 `Set` 是 `String` 类型的无序集合。集合成员是**唯一**的，这就意味着集合中不能出现重复的数据。
 
@@ -969,7 +969,7 @@ OK
    6) "c"
 ```
 
-# Redis Sorted Set命令
+# Redis Sorted Set
 
 `Redis` 有序集合和集合一样也是`string`类型元素的集合,且不允许重复的成员。
 
@@ -1462,7 +1462,7 @@ redis 127.0.0.1:6379> ZADD fin_test 99.5 "Tom"
    8) "4"
 ```
 
-## Redis Hash命令
+## Redis Hash
 
  `Redis hash` 是一个 `string` 类型的 `field（字段）` 和 `value（值）` 的映射表，`hash` 特别适合用于存储对象。 
 
@@ -1714,5 +1714,240 @@ OK
    6) "www.yahoo.com"
    7) "baidu"
    8) "www.baidu.com"
+```
+
+# Redis Geo
+
+`Redis GEO` 主要用于存储地理位置信息，并对存储的信息进行操作（`version 3.2+`）。
+
+`Redis GEO` 操作方法有：
+
+- `GEOADD`：添加地理位置的坐标。
+- `GEOPOS`：获取地理位置的坐标。
+- `GEODIST`：计算两个位置之间的距离。
+- `GEORADIUS`：根据用户给定的经纬度坐标来获取指定范围内的地理位置集合。
+- `GEORADIUSBYMEMBER`：根据储存在位置集合里面的某个地点获取指定范围内的地理位置集合。
+- `GEOHASH`：返回一个或多个位置对象的 `geohash` 值。
+
+`Geo`的底层实现其实是`Sorted Set`，所以可以使用`Sorted Set`命令来操作`Geo`。
+
+## GEOADD 添加地理位置坐标
+
+`GEOADD key longitude latitude member [longtitude latitude member ...]` 用于存储指定的地理空间位置，可以将一个或多个经度(`longitude`)、纬度(`latitude`)、位置名称(`member`)添加到指定的 `key` 中。 
+
+这些数据会以有序集合的形式被储存在键里面， 从而使得像 `GEORADIUS` 和 `GEORADIUSBYMEMBER` 这样的命令可以在之后通过位置查询取得这些元素。
+
+`GEOADD` 命令以标准的 `x,y` 格式接受参数， 所以用户必须先输入经度， 然后再输入纬度。 `GEOADD` 能够记录的坐标是有限的： 非常接近两极的区域是无法被索引的。 精确的坐标限制由 `EPSG:900913 / EPSG:3785 / OSGEO:41001` 等坐标系统定义， 具体如下：
+
+- 有效的经度介于 `-180` 度至 `180` 度之间。
+- 有效的纬度介于 `-85.05112878` 度至 `85.05112878` 度之间。
+
+当用户尝试输入一个超出范围的经度或者纬度时， `GEOADD` 命令将返回一个错误。
+
+```bash
+127.0.0.1:6379> GEOADD city 116.40 39.90 beijing
+(integer) 1
+127.0.0.1:6379> GEOADD city 106.50 29.53 chongqing 114.05 22.52 shenzhen
+(integer) 2
+127.0.0.1:6379> GEOADD city 121.47 31.23 shanghai
+(integer) 1
+127.0.0.1:6379> GEOADD city 120.16 30.24 hangzhou 108.96 34.26 xian
+(integer) 2
+```
+
+## GEOPOS 返回指定名称的经纬度
+
+`GEOPOS key member [member ...]`从`key`中返回所有给定`member`的经纬度。
+
+ `GEOPOS` 命令返回一个数组， 数组中的每个项都由两个元素组成： 第一个元素为给定位置元素的经度， 而第二个元素则为给定位置元素的纬度。 当给定的位置元素不存在时， 对应的数组项为空值。 
+
+ 因为 `GEOPOS` 命令接受可变数量的位置元素作为输入， 所以即使用户只给定了一个位置元素， 命令也会返回数组回复。 
+
+```bash
+127.0.0.1:6379> GEOPOS city beijing
+1) 1) "116.39999896287918"
+   2) "39.900000091670925"
+127.0.0.1:6379> GEOPOS city shanghai shenzhen
+1) 1) "121.47000163793564"
+   2) "31.229999039757836"
+2) 1) "114.04999762773514"
+   2) "22.520000087950386"
+```
+
+## GEODIST 返回两个位置之间的直线距离
+
+`GEODIST key member1 member2 [unit]`返回两个给定位置之间的距离。
+
+如果两个位置之间的其中一个不存在， 那么命令返回空值。
+
+指定单位的参数 `unit` 必须是以下单位的其中一个：
+
+- `m` 表示单位为米。
+- `km` 表示单位为千米。
+- `mi` 表示单位为英里。
+- `ft` 表示单位为英尺。
+
+如果用户没有显式地指定单位参数， 那么 `GEODIST` 默认使用米作为单位。
+
+`GEODIST` 命令在计算距离时会假设地球为完美的球形， 在极限情况下， 这一假设最大会造成 `0.5%` 的误差。
+
+```bash
+127.0.0.1:6379> GEODIST city beijing shanghai
+"1067378.7564"
+127.0.0.1:6379> GEODIST city beijing shanghai km
+"1067.3788"
+```
+
+## GEORADIUS 返回以指定位置为中心指定距离内的元素
+
+`GEORADIUS key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [COUNT count]`
+
+以给定的经纬度为中心， 返回键包含的位置元素当中， 与中心的距离不超过给定最大距离的所有位置元素。
+
+范围可以使用以下其中一个单位：
+
+- `m` 表示单位为米。
+- `km` 表示单位为千米。
+- `mi` 表示单位为英里。
+- `ft` 表示单位为英尺。
+
+在给定以下可选项时， 命令会返回额外的信息：
+
+- `WITHDIST` ： 在返回位置元素的同时， 将位置元素与中心之间的距离也一并返回。 距离的单位和用户给定的范围单位保持一致。
+- `WITHCOORD` ： 将位置元素的经度和维度也一并返回。
+- `WITHHASH` ： 以 `52` 位有符号整数的形式， 返回位置元素经过原始 `geohash` 编码的有序集合分值。 这个选项主要用于底层应用或者调试， 实际中的作用并不大。
+
+命令默认返回未排序的位置元素。 通过以下两个参数， 用户可以指定被返回位置元素的排序方式：
+
+- `ASC` ： 根据中心的位置， 按照从近到远的方式返回位置元素。
+- `DESC` ： 根据中心的位置， 按照从远到近的方式返回位置元素。
+
+在默认情况下， `GEORADIUS` 命令会返回所有匹配的位置元素。 虽然用户可以使用 `COUNT ` 选项去获取前 N 个匹配元素， 但是因为命令在内部可能会需要对所有被匹配的元素进行处理， 所以在对一个非常大的区域进行搜索时， 即使只使用 `COUNT` 选项去获取少量元素， 命令的执行速度也可能会非常慢。 但是从另一方面来说， 使用 `COUNT` 选项去减少需要返回的元素数量， 对于减少带宽来说仍然是非常有用的。
+
+`GEORADIUS` 命令返回一个数组， 具体来说：
+
+- 在没有给定任何 `WITH` 选项的情况下， 命令只会返回一个像 `["beijing","shanghai","shenzhen"]` 这样的线性列表。
+- 在指定了 `WITHCOORD` 、 `WITHDIST` 、 `WITHHASH` 等选项的情况下， 命令返回一个二层嵌套数组， 内层的每个子数组就表示一个元素。
+
+在返回嵌套数组时， 子数组的第一个元素总是位置元素的名字。 至于额外的信息， 则会作为子数组的后续元素， 按照以下顺序被返回：
+
+1. 以浮点数格式返回的中心与位置元素之间的距离， 单位与用户指定范围时的单位一致。
+2. `geohash` 整数。
+3. 由两个元素组成的坐标，分别为经度和纬度。
+
+```bash
+127.0.0.1:6379> GEORADIUS city 110 30 1000 km
+1) "chongqing"
+2) "xian"
+3) "shenzhen"
+4) "hangzhou"
+127.0.0.1:6379> GEORADIUS city 110 30 1000 km WITHDIST
+1) 1) "chongqing"
+   2) "341.9374"
+2) 1) "xian"
+   2) "483.8340"
+3) 1) "shenzhen"
+   2) "924.6408"
+4) 1) "hangzhou"
+   2) "977.5143"
+   127.0.0.1:6379>  GEORADIUS city 110 30 1000 km WITHDIST WITHCOORD WITHHASH ASC COUNT 2
+1) 1) "chongqing"
+   2) "341.9374"
+   3) (integer) 4026042091628984
+   4) 1) "106.49999767541885"
+      2) "29.529999579006592"
+2) 1) "xian"
+   2) "483.8340"
+   3) (integer) 4040115445396757
+   4) 1) "108.96000176668167"
+      2) "34.2599996441893"
+```
+
+## GEORADIUSBYMEMBER 返回以指定元素为中心指定距离内的元素
+
+`GEORADIUSBYMEMBER key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [ASC|DESC] [COUNT count]` 这个命令和 `GEORADIUS` 命令一样， 都可以找出位于指定范围内的元素， 但是 `GEORADIUSBYMEMBER` 的中心点是由给定的位置元素决定的， 而不是像 `GEORADIUS` 那样， 使用输入的经度和纬度来决定中心点。 
+
+详细信息，查看`GEORADIUS`命令。
+
+```bash
+127.0.0.1:6379> GEORADIUSBYMEMBER city xian 1000 km
+1) "xian"
+2) "chongqing"
+3) "beijing"
+```
+
+## GEOHASH 返回一个或多个元素位置的Geohash表示
+
+`GEOHASH key member [member ...]` 返回一个或多个位置元素的 [Geohash](https://en.wikipedia.org/wiki/Geohash) 表示。 
+
+```bash
+127.0.0.1:6379> GEOHASH city beijing
+1) "wx4fbxxfke0"
+127.0.0.1:6379> GEOHASH city shanghai shenzhen
+1) "wtw3sj5zbj0"
+2) "ws10578st80"
+```
+
+# Redis HyperLogLog
+
+`Redis HyperLogLog` 是用来做基数统计的算法，`HyperLogLog` 的优点是，在输入元素的数量或者体积非常非常大时，计算基数所需的空间总是固定 的、并且是很小的。
+
+在 `Redis` 里面，每个 `HyperLogLog` 键只需要花费 `12 KB` 内存，就可以计算接近 `2^64` 个不同元素的基 数。这和计算基数时，元素越多耗费内存就越多的集合形成鲜明对比。
+
+但是，因为 `HyperLogLog` 只会根据输入元素来计算基数，而不会储存输入元素本身，所以 `HyperLogLog` 不能像集合那样，返回输入的各个元素。
+
+> 基数： 集合去重后的元素个数。
+
+## PFADD 添加元素到HyperLogLog
+
+`PFADD key element [element ...]`命令将任意数量的元素添加到指定的`HyperLogLog`中。
+
+```bash
+127.0.0.1:6379> PFADD myset a b c d e f g h i j
+(integer) 1
+```
+
+## PFCOUNT 返回给定HyperLogLog的基数估算值
+
+`PFCOUNT key [key ...]`返回给定的`HyperLogLog`的基数估算值。
+
+当命令作用于单个键时， 返回储存在给定键的 `HyperLogLog` 的近似基数， 如果键不存在， 那么返回 `0` 。
+
+当 命令作用于多个键时， 返回所有给定 `HyperLogLog` 的并集的近似基数， 这个近似基数是通过将所有给定 `HyperLogLog` 合并至一个临时 `HyperLogLog` 来计算得出的。
+
+通过 `HyperLogLog` 数据结构， 用户可以使用少量固定大小的内存， 来储存集合中的唯一元素 （每个 `HyperLogLog` 只需使用 `12k` 字节内存，以及几个字节的内存来储存键本身）。
+
+命令返回的可见集合基数并不是精确值， 而是一个带有 `0.81%` 标准错误的近似值。
+
+举个例子， 为了记录一天会执行多少次各不相同的搜索查询， 一个程序可以在每次执行搜索查询时调用一次 `PFADD`， 并通过调用 `PFCOUNT`命令来获取这个记录的近似结果。
+
+```bash
+127.0.0.1:6379> PFADD myset a b c d e f g h i j
+(integer) 1
+127.0.0.1:6379> PFADD myset2 a b c e f i j
+(integer) 1
+127.0.0.1:6379> PFCOUNT myset
+(integer) 10
+127.0.0.1:6379> PFCOUNT myset2
+(integer) 7
+127.0.0.1:6379> PFCOUNT myset myset2
+(integer) 10
+```
+
+## PFMERGE 将多个HyperLogLog合并为一个
+
+`PFMERGE destkey sourcekey [sourcekey ...]` 命令将多个 `HyperLogLog` 合并为一个 `HyperLogLog` ，合并后的 `HyperLogLog` 的基数估算值是通过对所有 给定 `HyperLogLog` 进行并集计算得出的。 
+
+ 合并得出的 `HyperLogLog` 会被储存在 `destkey` 键里面， 如果该键并不存在， 那么命令在执行之前， 会先为该键创建一个空的 `HyperLogLog` 。 
+
+```bash
+127.0.0.1:6379> PFADD myset a b c d e f g h i j
+(integer) 1
+127.0.0.1:6379> PFADD myset2 a b c e f i j
+(integer) 1
+127.0.0.1:6379> PFMERGE merge myset myset2
+OK
+127.0.0.1:6379> PFCOUNT merge
+(integer) 10
 ```
 
