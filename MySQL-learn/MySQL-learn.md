@@ -1754,15 +1754,15 @@ CREATE INDEX 索引名 ON 表名(字段名);
 这条语句就会给对应表的字段添加上索引。但该语句不能创建主键。
 
 ```mysql
-`id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT "自增id",
-`uid` bigint(20) NOT NULL COMMENT "用户id",
-`gender` tinyint(1) UNSIGNED NOT NULL DEFAULT "0" COMMENT "性别",
-`name` varchar(12) NOT NULL NOT NULL COMMENT "昵称",
+`id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '自增id',
+`uid` bigint(20) NOT NULL COMMENT '用户id',
+`gender` tinyint(1) UNSIGNED NOT NULL DEFAULT '0' COMMENT '性别',
+`name` varchar(12) NOT NULL NOT NULL COMMENT '昵称',
 PRIMARY KEY (`id`),
 KEY `idx_gender` (`gender`),
 UNIQUE KEY `idx_name` (`name`),
 UNIQUE KEY `idx_uid` (`uid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT="用户表";
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户表';
 ```
 我们也可以在创建表时创建索引，单独使用`KEY`或者`INDEX`创建普通索引，`PRIMARY KEY`创建主键索引，`UNIQUE KEY`创建唯一索引。
 
