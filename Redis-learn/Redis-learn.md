@@ -2594,9 +2594,9 @@ REPLICAOF no one
 - 第四个元素是主服务器与从服务器的连接状态，`none`表示未连接，`connect`表示主从服务器正在握手，`connecting`表示主从服务器成功建立了连接，`sync`表示主从服务器正在数据同步，`connected`表示主从服务器已经进入在线更新状态，`unknown`表示连接状态未知。
 - 第五个元素是从服务器当前的复制偏移量。
 
-## 集群时需要修改的信息
+## 主从复制时需要修改的信息
 
-在创建集群时，我们需要复制多个配置文件，并在启动每个服务时指定对应的配置文件，从服务器配置文件需要修改的信息：
+在进行主从复制时，我们需要复制多个配置文件，并在启动每个服务时指定对应的配置文件，从服务器配置文件需要修改的信息：
 
 - 修改`replicaof`选项。
 
@@ -2632,7 +2632,7 @@ sentinel monitor <master-name> <ip> <port> <quorum>
 举个例子，如果我们要监视主服务器`127.0.0.1:6379`，并在`Sentinel`中将它命名为`website_db`，那么可以在配置文件`sentinel.conf`里面包含以下选项：
 
 ```bash
-sentinel monitor website_db 127.0.0.16379 1
+sentinel monitor website_db 127.0.0.1:6379 1
 ```
 
 
@@ -2842,6 +2842,244 @@ sentinel deny-scripts-reconfig yes
 # 为了将命令设置回其原始名称（撤消重命名），可以将命令重命名为它自身：
 #
 # SENTINEL rename-command mymaster CONFIG CONFIG
+```
+
+## 集群搭建
+
+`Redis`集群实现了对`Redis`的水平扩容，即启动`N`个`Redis`节点，将所有数据分布存储在这`N`个节点中。
+
+`Redis`会将整个数据库空间划分为`16384`个槽来实现数据分片，集群的各个主节点则会分别负责处理其中的一部分槽。当用户尝试将一个键存储到集群中时，客户端会先计算出键所属的槽，接着在记录集群节点槽分布的映射表中找出处理该槽的节点，最后再将键存储到相应节点中。
+
+ 当用户想要向集群添加新节点时，只需要向`Redis`集群发送几条简单的命令，集群就会将相应的槽以及槽中存储的数据迁移至新节点。与此类似，当用户想要从集群中移除已存在的节点时，被移除的节点也会将自己负责处理的槽以及槽中数据转交给集群中的其他节点负责。最重要的是，无论是向集群添加新节点还是从集群中移除已有节点，整个重分片过程都可以在线进行，`Redis`集群无须因此而停机。 
+
+我们将搭建一个由`5`个主节点和`5`个从节点组成的`Redis`集群。
+为此，我们需要先创建出`10`个文件夹，用于存放相应节点的数据以及配置文件：
+
+```bash
+$ mkdir my-cluster
+$ cd my-cluster/
+$ mkdir node1 node2 node3 node4 node5 node6 node7 node8 node9 node10
+```
+
+
+接着，我们需要在每个节点文件夹中创建一个包含以下内容的redis.conf配置文件：
+
+```bash
+# 表示将Redis实例设置成集群节点而不是单机服务
+cluster-enabled yes
+# 为每个节点设置不同的端口号
+port 30001
+```
+
+其中，`cluster-enabled`选项的值为`yes`表示将`Redis`实例设置成集群节点而不是单机服务器，而`port`选项则用于为每个节点设置不同的端口号。在本例中，我们为`10`个节点分别设置了从`30001～30010`的端口号。
+在为每个节点都设置好相应的配置文件之后，我们需要通过以下命令，陆续启动各个文件夹中的集群节点：
+
+```bash
+# 启动每个redis实例（每个都启动一遍）
+redis-server redis.conf
+```
+
+虽然我们已经启动了`10`个集群节点，但由于这些集群并未互联互通，所以它们都只在它们各自的集群之内。因此，我们接下来要做的就是连接这`10`个集群节点并为它们分配槽，这可以通过执行以下命令来完成：
+
+```bash
+$ redis-cli --cluster create 127.0.0.1:30001 127.0.0.1:30002 127.0.0.1:30003 127.0.0.1:30004 127.0.0.1:30005 127.0.0.1:30006 127.0.0.1:30007 127.0.0.1:30008 127.0.0.1:30009 127.0.0.1:30010 --cluster-replicas 1
+```
+
+`redis-cli --cluster`是`Redis`客户端附带的集群管理工具，它的`create`子命令接受任意多个节点的`IP`地址和端口号作为参数，然后使用这些节点组建起一个`Redis`集群。`create`子命令允许使用多个可选参数，其中可选参数`cluster-replicas`用于指定集群中每个主节点的从节点数量。在上面的命令调用中，该参数的值为`1`，这表示我们想要为每个主节点设置一个从节点。
+
+ 在执行上述命令之后，create子命令将制定出以下节点角色和槽分配计划：
+
+ ```bash
+>>> Performing hash slots allocation on 10 nodes...
+        Master[0] -> Slots 0-3276
+
+        Master[1] -> Slots 3277-6553
+        Master[2] -> Slots 6554-9829
+        Master[3] -> Slots 9830-13106
+        Master[4] -> Slots 13107-16383
+        Adding replica 127.0.0.1:30006 to 127.0.0.1:30001
+        Adding replica 127.0.0.1:30007 to 127.0.0.1:30002
+        Adding replica 127.0.0.1:30008 to 127.0.0.1:30003
+        Adding replica 127.0.0.1:30009 to 127.0.0.1:30004
+        Adding replica 127.0.0.1:30010 to 127.0.0.1:30005
+        >>> Trying to optimize slaves allocation for anti-affinity
+        [WARNING] Some slaves are in the same host as their master
+        M: 768c4b1b7ef79ae6ed1ae44a1e122222e64899f4127.0.0.1:30001
+            slots:[0-3276] (3277 slots) master
+        M: b3b5b9cffba161ac73fb5e521a12d31d9e53ac11127.0.0.1:30002
+            slots:[3277-6553] (3277 slots) master
+        M: c0023cb598fa76f061a9db90df53f68
+# 省略N行 ...
+Can I set the above configuration? (type 'yes' to accept):
+ ```
+
+ 从这份计划可以看出，命令打算把节点`30001～30005`设置为主节点，并把`16384`个槽平均分配给这`5`个节点负责，至于节点`30006～30010`则分别指派给了`5`个主节点作为从节点。在输入`yes`并按下`Enter`键之后，`create`命令就会执行实际的分配和指派工作。
+
+等待完成之后，整个集群就已经设置完毕，并且`16384`个槽也已经全部分配给了各个节点。**当然，在实际生产环境中，节点通常会分布在多台主机中，而不是集中在一台主机上。**
+
+ 在成功构建起集群之后，我们就可以使用客户端来连接并使用集群了，要做到这一点，最简单的就是使用`Redis`附带的`redis-cli`客户端。在连接集群节点而不是单机`Redis`服务器时，我们需要向`redis-cli`提供`c`（`cluster`，集群）参数以指示客户端进入集群模式，并通过`h`（`host`，主机地址）参数或`p`（`port`，端口号）参数指定集群中的某个节点作为入口：
+
+   ```bash
+--连接本机端口30001上的集群节点，并向它发送PING命令
+$ redis-cli -c -p 30001
+127.0.0.1:30001> PING
+PONG
+   ```
+
+
+如果接收到命令请求的节点并非负责处理命令所指键的节点，那么客户端将根据节点提示的转向信息再次向正确的节点发送命令请求，`Redis`集群把这个动作称为“转向”。举个例子，如果我们向节点`30001`发送一个指向键`msg`的命令请求，但是由于该键所属的槽`6257`并不是由节点`30001`负责处理，而是由节点`30002`负责处理，所以节点`30001`将向客户端返回一个转向提示，而收到提示的客户端将向节点`30002`重新发送命令请求，最终使命令得到正确的处理：
+
+```bash
+--发送至节点30001的命令请求被转向节点30002
+127.0.0.1:30001> SET msg "hi"
+-> Redirected to slot [6257] located at 127.0.0.1:30002
+OK 
+```
+
+ 如果客户端发送的命令请求正好是由接收命令请求的节点负责处理，那么节点将直接向客户端返回命令执行结果，就像平时向单机服务器发送命令请求一样：
+
+   ```bash
+--因为键number所属的槽7743正好是由节点30002负责
+--所以命令请求可以在不转向的情况下直接执行
+127.0.0.1:30002> SET number 10086
+OK
+   ```
+
+### 打开/关闭从节点读命令权限
+
+ 前面的章节曾经提到过，在使用单机Redis服务器时，用户可以为主服务器创建从服务器，然后通过让从服务器处理读请求来提升整个系统处理读请求的能力。
+与这种做法不一样的是，集群的从节点在默认情况下只会对主节点进行复制，但是不会处理客户端发送的任何命令请求：每当从节点接收到命令请求的时候，它只会向客户端发送转向消息，引导客户端向某个主节点重新发送命令请求。
+举个例子，对于主节点`30001`和它的从节点`30005`来说，如果我们向从节点发送以下命令，那么从节点将把客户端转向至主节点，然后再执行命令：
+
+  ```bash
+127.0.0.1:30005> GET num
+-> Redirected to slot [2765] located at 127.0.0.1:30001
+
+"10086"
+127.0.0.1:30001>
+  ```
+
+
+但是在某些情况下，用户可能想要让从节点也能处理读请求，从而提高整个集群处理读请求的能力。为此，`Redis`向用户提供了`READONLY`和`READWRITE`两个命令，它们可以临时打开或关闭客户端在从节点上执行读命令的权限。 
+
+ 用户可以通过执行以下命令，让客户端临时获得在从服务器上执行读命令的权限：
+
+```bash
+READONLY
+```
+
+这个命令在成功执行之后将返回`OK`作为结果。
+在前面的例子中，当我们直接向从节点`30005`发送读请求`GET num`命令时，该命令将被转向至主节点`30001`执行。但是通过执行`READONLY`命令，我们可以让客户端临时获得在`30005`上执行读命令的权限，这样一来，针对`num`键的`GET`命令请求就不会被转向至节点`30001`，而是直接在节点`30005`上执行：
+
+```bash
+127.0.0.1:30005> READONLY
+OK
+
+127.0.0.1:30005> GET num
+"10086"
+```
+`READONLY`命令只对执行了该命令的客户端有效，它并不影响正在访问相同从节点的其他客户端。 
+在使用`READONLY`命令打开客户端对从节点的读命令执行权限之后，我们可以通过执行以下命令重新关闭该权限：
+```bash
+READWRITE
+```
+这个命令在执行完毕之后将返回`OK`作为结果。这样一来，执行了该命令的客户端将不能再对从服务器执行读命令。
+作为例子，以下代码展示了客户端在执行`READWRITE`命令之后，读请求再次被转向至主节点的过程：
+```bash
+127.0.0.1:30005> READWRITE
+OK
+
+127.0.0.1:30005> GET num
+-> Redirected to slot [2765] located at 127.0.0.1:30001
+"10086"
+
+127.0.0.1:30001>
+```
+
+### 集群管理工具redis-cli
+
+可以输入：
+
+```bash
+redis-cli --cluster help
+```
+
+查看该程序支持的各个子命令。
+
+```bash
+redis-cli --cluster help
+Cluster Manager Commands:
+  create         host1:port1 ... hostN:portN   #创建集群
+                 --cluster-replicas <arg>      #从节点个数
+  check          host:port                     #检查集群
+                 --cluster-search-multiple-owners #检查是否有槽同时被分配给了多个节点
+  info           host:port                     #查看集群状态
+  fix            host:port                     #修复集群
+                 --cluster-search-multiple-owners #修复槽的重复分配问题
+  reshard        host:port                     #指定集群的任意一节点进行迁移slot，重新分slots
+                 --cluster-from <arg>          #需要从哪些源节点上迁移slot，可从多个源节点完成迁移，以逗号隔开，传递的是节点的node id，还可以直接传递--from all，这样源节点就是集群的所有节点，不传递该参数的话，则会在迁移过程中提示用户输入
+                 --cluster-to <arg>            #slot需要迁移的目的节点的node id，目的节点只能填写一个，不传递该参数的话，则会在迁移过程中提示用户输入
+                 --cluster-slots <arg>         #需要迁移的slot数量，不传递该参数的话，则会在迁移过程中提示用户输入。
+                 --cluster-yes                 #指定迁移时的确认输入
+                 --cluster-timeout <arg>       #设置migrate命令的超时时间
+                 --cluster-pipeline <arg>      #定义cluster getkeysinslot命令一次取出的key数量，不传的话使用默认值为10
+                 --cluster-replace             #是否直接replace到目标节点
+  rebalance      host:port                                      #指定集群的任意一节点进行平衡集群节点slot数量 
+                 --cluster-weight <node1=w1...nodeN=wN>         #指定集群节点的权重
+                 --cluster-use-empty-masters                    #设置可以让没有分配slot的主节点参与，默认不允许
+                 --cluster-timeout <arg>                        #设置migrate命令的超时时间
+                 --cluster-simulate                             #模拟rebalance操作，不会真正执行迁移操作
+                 --cluster-pipeline <arg>                       #定义cluster getkeysinslot命令一次取出的key数量，默认值为10
+                 --cluster-threshold <arg>                      #迁移的slot阈值超过threshold，执行rebalance操作
+                 --cluster-replace                              #是否直接replace到目标节点
+  add-node       new_host:new_port existing_host:existing_port  #添加节点，把新节点加入到指定的集群，默认添加主节点
+                 --cluster-slave                                #新节点作为从节点，默认随机一个主节点
+                 --cluster-master-id <arg>                      #给新节点指定主节点
+  del-node       host:port node_id                              #删除给定的一个节点，成功后关闭该节点服务
+  call           host:port command arg arg .. arg               #在集群的所有节点执行相关命令
+  set-timeout    host:port milliseconds                         #设置cluster-node-timeout
+  import         host:port                                      #将外部redis数据导入集群
+                 --cluster-from <arg>                           #将指定实例的数据导入到集群
+                 --cluster-copy                                 #migrate时指定copy,只有使用这个命令，导入源的数据才不会被删除
+                 --cluster-replace                              #migrate时指定replace
+  help           
+
+For check, fix, reshard, del-node, set-timeout you can specify the host and port of any working node in the cluster.
+```
+
+### 集群管理命令
+
+ 除了集群管理程序之外，`Redis`还提供了一簇以`CLUSTER`开头的集群命令，这些命令可以根据它们的作用分为集群管理命令和槽管理命令，前者管理的是集群及其节点，而后者管理的则是节点的槽分配情况。
+需要注意的是，因为`Redis`的集群管理程序`redis-cli--cluster`实际上就是由`CLUSTER`命令实现的，所以这两者之间存在着千丝万缕的关系，某些`redis-cli--cluster`子命令甚至直接与某个`CLUSTER`子命令对应。
+我们之所以在了解了`Redis`集群管理程序之后仍然需要了解`CLUSTER`命令，是因为在某些情况下，`Redis`提供的集群管理程序可能无法满足我们的需求，这时我们就需要使用`CLUSTER`命令去构建自己的集群管理程序了。
+
+```bash
+# 集群
+CLUSTER INFO  # 打印集群的信息
+CLUSTER NODES  #列出集群当前已知的所有节点（ node），以及这些节点的相关信息
+
+# 节点
+CLUSTER MEET <ip> <port>  # 将 ip 和 port 所指定的节点添加到集群当中，让它成为集群的一份子
+CLUSTER FORGET <node_id>  # 从集群中移除 node_id 指定的节点
+CLUSTER REPLICATE <node_id>  # 将当前节点设置为 node_id 指定的节点的从节点
+CLUSTER REPLICAS <node_id>  # 查看node_id的从节点 
+CLUSTER SAVECONFIG  # 将节点的配置文件保存到硬盘里面
+CLUSTER MYID # 查看当前节点的运行ID
+
+# 槽(slot)
+CLUSTER SLOTS # 查看槽与节点之间的关联信息
+CLUSTER ADDSLOTS <slot> [slot ...]  #将一个或多个槽（ slot）指派（ assign）给当前节点
+CLUSTER DELSLOTS <slot> [slot ...]  # 移除一个或多个槽对当前节点的指派
+CLUSTER FLUSHSLOTS  # 移除指派给当前节点的所有槽，让当前节点变成一个没有指派任何槽的节点
+CLUSTER SETSLOT <slot> NODE <node_id>  #将槽 slot 指派给 node_id 指定的节点，如果槽已经指派给另一个节点，那么先让另一个节点删除该槽>，然后再进行指派
+CLUSTER SETSLOT <slot> MIGRATING <node_id>  # 将本节点的槽 slot 迁移到 node_id 指定的节点中
+CLUSTER SETSLOT <slot> IMPORTING <node_id>  # 从 node_id 指定的节点中导入槽 slot 到本节点
+CLUSTER SETSLOT <slot> STABLE  # 取消对槽 slot 的导入（ import）或者迁移（ migrate）
+
+# 键
+CLUSTER KEYSLOT <key>  # 计算键 key 应该被放置在哪个槽上
+CLUSTER COUNTKEYSINSLOT <slot>  # 返回槽 slot 目前包含的键值对数量
+CLUSTER GETKEYSINSLOT <slot> <count>  # 返回 count 个 slot 槽中的键  
 ```
 
 # Redis 缓存穿透和雪崩
