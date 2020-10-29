@@ -419,19 +419,37 @@ GET _analyze
 
 ### 自定义词典
 
-`ik`自身词典可能无法满足需求，提供了自定义词典功能，
+`ik`自身词典可能无法满足需求，提供了自定义词典功能。
 
-1，新建扩展名为`dic`文本文件，写入要增加的词条，每词单独一行，如`my.dic(编码utf-8`)，
+1. 新建扩展名为`dic`文本文件，写入要增加的词条，每词单独一行，如`my.dic(编码utf-8`)，
 
-2，在容器内部 `config/analysis-ik` 下新建子目录。如：`/config/analysis-ik/mydic/my.dic` 。
+2. 在容器内部 `config/analysis-ik` 下新建子目录。如：`/config/analysis-ik/mydic/my.dic` 。
 
-3，修改`ik`配置文件`IKAnalyzer.cfg.xml`（位于`config/analysis-ik`目录下），在配置文件中加入如下条目：
+3. 修改`ik`配置文件`IKAnalyzer.cfg.xml`（位于`config/analysis-ik`目录下），在配置文件中修改如下条目：
 
-```bash
+```xml
 <entry key="ext_dict">mydict/my.dic</entry>
 ```
 
-4，重启容器使生效。
+4. 重启容器使生效。
+
+同时，我们还可以配置停止词词库（即本来是一个词，但是不让它成为关键词，比如”结果“是一个词，在停止词词库中加入这个词之后就不会认为它是一个词了），远程词库，远程停止词词库。
+
+```xml
+<properties> 
+    <comment>IK Analyzer 扩展配置</comment> 
+    <!--用户可以在这里配置自己的扩展字典 --> 
+    <entry key="ext_dict">custom/mydict.dic;custom/single_word_low_freq.dic</entry>
+    <!--用户可以在这里配置自己的扩展停止词字典--> 
+    <entry key="ext_stopwords">custom/ext_stopword.dic</entry>  
+    <!--用户可以在这里配置远程扩展字典 --> 
+    <entry key="remote_ext_dict">http://192.168.90.57:8080/test/mydic.dic</entry>  
+    <!--用户可以在这里配置远程扩展停止词字典--> 
+    <!-- <entry key="remote_ext_stopwords">words_location</entry> -->
+</properties> 
+```
+
+
 
 ## ES Rest CRUD
 
@@ -536,7 +554,8 @@ PUT test4
                 "type": "keyword"
             },
             "author": {
-                "type": "keyword"
+                "type": "keyword",
+                "index": false	//不让字段被索引，这通常用在有关安全隐私方面的信息
             },
             "content": {
                 "type": "text"
@@ -1420,6 +1439,21 @@ GET /test2/_search
 // 模糊查询是基于关键词的，这里当搜索elasticSearch时如果完全匹配一个关键词，那么可以搜索到， 如果搜索elasticseorch，错误了一个字母，那么也同样可以搜索到，可以允许错误的字数是有要求的，当整个关键词长度为0-2时，不允许错误，当长度为3-5时，允许一个字错误，当大于5时允许两个字错误，最大可以错误两个字。
 ```
 
+#### 正则查询
+
+```json
+GET /test2/_search
+{
+    "query": {
+        "regexp": {
+            "mobile": "139[0-9]{8}"		// 以 139开头的手机号
+        }
+    }
+}
+```
+
+注意： `prefix`、`fuzzy`、`wildcard`、`regexp`查询效率都比较低，要求效率比较高时，避免使用。
+
 #### 布尔查询
 
 布尔查询可以组合多个条件实现复杂查询。
@@ -1658,6 +1692,31 @@ GET /test3/_search
 }
 ```
 
+可以指定高亮数据返回多少个字符：
+
+```json
+GET /test3/_search
+{
+    "query": {
+        "term": {
+            "title": {
+                "value": "redis"
+            }
+        }
+    },
+    "highlight": {
+      "require_field_match": false,
+        "fields": {
+          "*": {
+            "pre_tags": ["<span>"],		
+            "post_tags": ["</span>"],	
+             "fragment_size": 20	// 高亮数据返回20个字符，包括高亮词，一个词算一个字符，一个符号算一个字符，包括标签	
+          }
+        }
+    }
+}
+```
+
 
 
 #### 返回结果分析
@@ -1715,4 +1774,367 @@ GET /test2/_search
   }
 }
 ```
+
+### 过滤搜索
+`ES`中的搜索分为两种，一种是之前提到的`搜索(query)`，另外一种是`过滤(filter)`。`query`会计算每个返回文档的得分，然后根据得分排序。而`filter`则只会筛选出符合的文档，不计算得分，并且它可以缓存文档，所以从性能上来说，`filter`更快。
+`filter`适合大范围筛选数据，查询则适合精确匹配数据。一般应用时，应先使用过滤操作过滤数据，然后使用查询匹配数据。
+
+在执行`filter`和`query`时，会先执行`filter`再执行`query`，也就是先过滤掉了一些结果，在进行查询，同时`ES`会对经常使用的`filter`结果进行缓存。
+
+```json
+GET /test2/_search
+{
+    "query": {
+        "bool": {		// 因为是两种查询方式，一次查询使用多种查询方式必须使用布尔查询
+            "must": [
+                {"match_all": {}}
+            ],
+            "filter": {		// 注意，和must同级，也就是说bool里可以写must，should，must_not，filter
+                "range": {
+                    "age": {
+                        "gte": 10
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+常见的过滤器类型还有`term`，`terms`，`exists`， `ids`：
+
+```json
+GET /test2/_search
+{
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "term": {
+                        "name": {
+                            "value": "二狗"
+                        }
+                    }
+                }
+            ],
+            "filter": {
+                "term": {		// 使用了term对关键词进行过滤
+                    "content": "redis"	// 这里就会先过滤出content有redis的结果
+                }
+            }
+        }
+    }
+}
+```
+
+```json
+GET /test2/_search
+{
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "term": {
+                        "name": {
+                            "value": "二狗"
+                        }
+                    }
+                }
+            ],
+            "filter": {
+                "terms": {		// 使用了terms
+                    "content": ["架构", "redis"]	// 会过滤出有这两种结果其一的
+                }
+            }
+        }
+    }
+}
+```
+
+`exists`过滤存在指定字段，获取字段不为空的记录：
+
+```json
+GET /test2/_search
+{
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "term": {
+                        "name": {
+                            "value": "二狗"
+                        }
+                    }
+                }
+            ],
+            "filter": {
+                "exists": {
+                    "field": "content"		// 过滤content字段不为空的
+                }
+            }
+        }
+    }
+}
+```
+
+`ids`过滤含有指定`id`的索引记录：
+
+```json
+GET /test2/_search
+{
+    "query": {
+        "bool": {
+            "must": [
+                {
+                    "term": {
+                        "name": {
+                            "value": "二狗"
+                        }
+                    }
+                }
+            ],
+            "filter": {
+                "ids": {
+                    "values": ["1", "2", "3"]		// 过滤id为1,2,3的
+                }
+            }
+        }
+    }
+}
+```
+
+### 搜索删除
+
+根据搜索结果删除文档：
+
+```json
+POST /test2/_delete_by_query
+{
+    "query": {
+        "range": {
+            "age": {
+                "lt": 10	// 删除age小于10的文档
+            }
+        }
+    }
+}
+```
+
+### boosting 搜索
+
+`boosting`查询可以帮助我们影响搜索后的分数。
+
+`boosting`提供了三个字段参数：
+
+- `positive`： 只有匹配上`positive`查询的内容，才会放到返回的结果集中。
+- `negative`： 如果匹配上了`positive`并且也匹配上了`negative`，就可以降低这样的文档的`score`。
+- `negative_boosting`： 为`negative`匹配上的文档，也就是要降低分数的文档，指定系数，必须小于`1`。
+
+```json
+GET /test2/_search
+{
+  "query": {
+    "boosting": {
+      "positive": {
+        "term": {
+          "text": "apple"
+        }
+      },
+      "negative": {
+        "term": {
+          "text": "pie tart fruit crumble tree"
+        }
+      },
+      "negative_boost": 0.5
+    }
+  }
+}
+```
+
+### 聚合查询
+
+`ES`的聚合查询和`MySQL`的聚合查询类似，比如`MySQL`有`count`、`Max`等，`ES`的聚合查询提供的统计数据的方式很多。
+
+-  Metric(指标):   指标分析类型，如计算最大值、最小值、平均值等等 （对桶内的文档进行聚合分析的操作） 
+- Bucket(桶):     分桶类型，类似SQL中的GROUP BY语法 （满足特定条件的文档的集合） 
+- Pipeline(管道): 管道分析类型，基于上一级的聚合分析结果进行在分析 
+- Matrix(矩阵):   矩阵分析类型（聚合是一种面向数值型的聚合，用于计算一组文档字段中的统计信息） 
+
+在查询请求体中以`aggregations（可以简写为aggs）`节点按如下语法定义聚合分析：
+
+```makefile
+"aggregations" : {
+    "<aggregation_name>" : {       //聚合的名字，可以自己随便取，比如max_price
+        "<aggregation_type>" : {   //聚合的类型
+            <aggregation_body>     //聚合体：对哪些字段进行聚合
+        }
+        [,"meta" : {  [<meta_data_body>] } ]?        //元
+        [,"aggregations" : { [<sub_aggregation>]+ } ]?  //在聚合里面在定义子聚合
+    }
+    [,"<aggregation_name_2>" : { ... } ]*               //聚合的名字
+}
+```
+
+虽然`Elasticsearch`有四种聚合方式，但在一般实际开发中，用到的比较多的就是`Metric`和`Bucket`。
+
+- 桶（bucket）
+
+1. 简单来说桶就是满足特定条件的文档的集合。
+2. 当聚合开始被执行，每个文档里面的值通过计算来决定符合哪个桶的条件，如果匹配到，文档将放入相应的桶并接着开始聚合操作。
+3. 桶也可以被嵌套在其他桶里面。
+
+- 指标（metric）
+
+1. 桶能让我们划分文档到有意义的集合，但是最终我们需要的是对这些桶内的文档进行一些指标的计算。分桶是一种达到目的地的手段：它提供了一种给文档分组的方法来让我们可以计算感兴趣的指标。
+2. 大多数指标是简单的数学运算（如：最小值、平均值、最大值、汇总），这些是通过文档的值来计算的。
+
+#### 去重记数查询
+
+去重计数，`cardinality` 先将返回的文档中的一个指定的`field`进行去重，统计一共有多少条：
+
+```json
+// 去重计数 查询 province
+GET /test/_search
+{
+  "aggs": {
+    "provinceCount": {
+      "cardinality": {
+        "field": "province"
+      }
+    }
+  }
+}
+```
+
+结果：
+
+```json
+{
+   ...
+   "hits": { ... },
+   "aggregations": {
+      "provinceCount": {		// 与你查询时起的名字相同
+         "value": 4				// 去重后得到4个
+      }
+   }
+}
+```
+
+#### 范围记数查询
+
+统计一定范围内出现的文档个数，比如，针对某一个`field` 的值在`0~100`,`100~200`,`200~300` 之间文档出现的个数分别是多少。范围统计 可以针对 普通的数值，针对时间类型，针对ip类型都可以响应。
+- 数值： `range`
+- 时间：  `date_range`
+- `ip`：   `ip_range`
+
+```json
+//针对数值方式的范围统计  from 带等于效果 ，to 不带等于效果
+GET /test/_search
+{
+  "aggs": {
+    "agg": {
+      "range": {
+        "field": "fee",
+        "ranges": [
+          {
+            "to": 30
+          },
+           {
+            "from": 30,
+            "to": 60
+          },
+          {
+            "from": 60
+          }
+        ]
+      }
+    }
+  }
+}
+
+
+//时间方式统计
+GET /test/_search
+{
+  "aggs": {
+    "agg": {
+      "date_range": {
+        "field": "sendDate",
+        "format": "yyyy", 
+        "ranges": [
+          {
+            "to": "2000"
+          },{
+            "from": "2000"
+          }
+        ]
+      }
+    }
+  }
+}
+
+
+//ip 方式 范围统计
+GET /test/_search
+{
+  "aggs": {
+    "agg": {
+      "ip_range": {
+        "field": "ipAddr",
+        "ranges": [
+          {
+            "to": "127.0.0.8"
+          },
+          {
+            "from": "127.0.0.8"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+#### 统计聚合查询
+
+统计聚合查询可以直接查询多种聚合结果，比如指定`field`的最大值，最小值，平均值，平方和...
+统计聚合查询使用参数 `extended_stats`：
+```json
+// 统计聚合查询 extended_stats
+POST /test/_search
+{
+  "aggs": {
+    "agg": {
+      "extended_stats": {
+        "field": "fee"		// 使用很简单，直接写字段即可
+      }
+    }
+  }
+}
+```
+
+返回结果：
+```json
+{
+   ...
+   "hits": { ... },
+   "aggregations": {
+      "agg": {		// 与你查询时起的名字相同
+         "count": 20,
+         "min": 4.0,
+         "max": 8.0,
+         "avg": 5.0,
+         "sum": 116.0,
+         "sum_of_squares": 716.0,
+         "variance": 2.160000000024,
+         "std_deviation": 1.4696938456699076,
+         "std_deviation_bounds": {
+         	"upper": 8.739387691339815,
+         	"lower": 2.8606123086601847
+         }
+      }
+   }
+}
+```
+更多聚合查询可以查看[官方文档](https://www.elastic.co/guide/en/elasticsearch/reference/7.9/search-aggregations.html)。
 
