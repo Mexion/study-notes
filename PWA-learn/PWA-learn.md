@@ -91,6 +91,9 @@ self.addEventListener('install', event => {
 
 ```js
 self.addEventListener('fetch', event => {
+    // check if request is made by chrome extensions or web page
+  // if request is made for web page url must contains http.
+    if (!(event.request.url.indexOf('http') === 0)) return; // skip the request. if request is not made with http protocol
     event.respondWith(caches.open(CACHE_VERSION).then(cache => {
         return cache.match(event.request).then(response => {
             if(response) {

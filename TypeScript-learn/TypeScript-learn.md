@@ -2808,7 +2808,7 @@ module.exports = {
 
 `Babel`在`Babel7`之前是不支持`TypeScript`的，如果要使用`TypeScript`，需要使用`loader`处理再转交给`Babel`：
 
-![Babel](https://mexion.xyz/images/study-notes/TypeScript-learn/Babel.jpg)
+![Babel](http://static.init.center/study-notes-images/TypeScript-learn/Babel.jpg)
 
 `Babel7`之后`Babel`已经可以支持`TypeScript`。
 
