@@ -312,3 +312,231 @@ test.only('测试 Counter 中 addOne 方法', () => {
         });
 ```
 
+## Jest中的mock
+
+ 现在有这么一个场景，假设我们需要测试这个函数:
+```typescript
+const runCallback = (cb: (...arg: any[]) => any) => {
+  cb();
+};
+```
+按照平时的测试方法，测试用例如下：
+
+```typescript
+test("测试runCallback", () => {
+    const func = () => {
+        return "hello";
+    };
+  expect(runcallback(func)).toBe("hello");
+});
+```
+
+编写测试用例时我们要测试`cb`的执行情况，但是很显然`expect`是拿不到`cb`的结果的，因为`runCallback`里并没有返回`cb`的结果，而我们又不想因为测试违反我们本意地去修改我们的代码，此时`mock`就能解决这个问题。
+我们可以写这样一个测试用例:
+
+```typescript
+test("测试runCallback", () => {
+  // 我们调用jest.fn()生成一个mock func
+  const func = jest.fn();
+  // 将mock func传入测试函数中
+  runCallback(func);
+  //然后用toBeCalled判断这个函数是否被调用过
+  expect(func).toBeCalled();
+});
+```
+我们使用普通的函数是没法用`toBeCalled`来判断的，因为普通函数是无法追溯的。
+
+`func`上挂在了一些属性，比如`func.mock`，我们打印一下`func.mock`，可以得到：
+
+```typescript
+{
+      calls: [ [] ],
+      instances: [ undefined ],
+      invocationCallOrder: [ 1 ],
+      results: [ { type: 'return', value: undefined } ]
+    }
+```
+
+`calls`表示这个`mock func`被调用的情况，`instances`表示实例的`this`指向，`results`表示这个函数执行的输出结果。
+
+`calls`是一个二维数组，内层数组表示函数被调用时的参数，这个函数被调用了几次就会有几个内层数组，这里调用了一次，没有传参，所以有一个内层数组，数组内为空。
+
+假如我们改成这样：
+
+```typescript
+const runCallback = (cb: (...arg: any[]) => any) => {
+  // 传参
+  cb("param");
+};
+
+test("callback", () => {
+  // jest.fn可以传入一个函数， 函数的返回值可以当做mock func的返回值
+  const func = jest.fn(() => {
+    // 可以写其他逻辑
+    return "123";
+  });
+  // 也可以使用 func.mockImplementation(() => "123");
+  // 这里只写了返回值，实际上可以在函数内部写其他逻辑
+    
+  // 调用了两次
+  runCallback(func);
+  runCallback(func);
+  expect(func).toBeCalled();
+  console.log(func.mock);
+});
+
+// 会输出：
+
+{
+      calls: [ [ 'param' ], [ 'param' ] ],      
+      instances: [ undefined, undefined ],      
+      invocationCallOrder: [ 1, 2 ],
+      results: [
+        { type: 'return', value: '123' },       
+        { type: 'return', value: '123' }        
+      ]
+    }
+```
+
+我们要测试调用次数可以`ecpect(func.mock.calls.length).toBe(2)`，参数和返回值也类似，从`func.mock`上拿到后再匹配即可。
+
+ 除了像上面那样给`fn`传参来模拟返回值，也可以使用`mockReturnValue`和`mockReturnValueOnce`：
+
+```typescript
+test("callback", () => {
+  // 这里我们不传参
+  const func = jest.fn();
+  // 使用 mockReturnValue
+  func.mockReturnValue("a return value");
+  runCallback(func);
+  runCallback(func);
+  expect(func).toBeCalled();
+  console.log(func.mock);
+});
+
+// 会输出：
+
+ {
+      calls: [ [ 'param' ], [ 'param' ] ],
+      instances: [ undefined, undefined ],
+      invocationCallOrder: [ 1, 2 ],
+      results: [
+        { type: 'return', value: 'a return value' },
+        { type: 'return', value: 'a return value' } 
+      ]
+    }
+```
+
+`mockReturnValueOnce`也一样，只不过它只模拟一次，每调用一次就模拟一次：
+
+```typescript
+test("callback", () => {
+  // 这里我们不传参
+  const func = jest.fn();
+  // 使用 mockReturnValue
+  func.mockReturnValueOnce("return value 1");
+  // 也可以使用 func.mockImplementationOnce(() => "123");
+    
+  runCallback(func);
+  runCallback(func);
+  expect(func).toBeCalled();
+  console.log(func.mock);
+});
+
+// 可得：
+
+ {
+      calls: [ [ 'param' ], [ 'param' ] ],
+      instances: [ undefined, undefined ],
+      invocationCallOrder: [ 1, 2 ],
+      results: [
+        { type: 'return', value: 'return value 1' },
+        { type: 'return', value: undefined }        
+      ]
+    }
+```
+
+多次调用：
+
+```typescript
+test("callback", () => {
+  const func = jest.fn();
+  func.mockReturnValueOnce("return value 1");
+  func.mockReturnValueOnce("return value 2");
+  // 实际上 可以链式调用
+  // func.mockReturnValueOnce("return value 1").mockReturnValueOnce("return value 2");
+  runCallback(func);
+  runCallback(func);
+  expect(func).toBeCalled();
+  console.log(func.mock);
+});
+
+// 可得：
+{
+      calls: [ [ 'param' ], [ 'param' ] ],
+      instances: [ undefined, undefined ],
+      invocationCallOrder: [ 1, 2 ],
+      results: [
+        { type: 'return', value: 'return value 1' },
+        { type: 'return', value: 'return value 2' } 
+      ]
+    }
+```
+
+现在我们的`instances`里都是`undefined`，这是因为函数在当做普通函数调用时它的`this`指向在`node`中指向的是`undefined`，假如我们修改测试函数，去`new`这个`mock func`，此时`this`指向就会指向`mock func`作为构造函数构造的对象：
+
+```typescript
+const createObject = (classItem) => {
+    // 去new这个构造函数
+    new classItem();
+};
+
+test("测试createObject", () => {
+    const func = jest.fn();
+    createObject(func);
+    console.log(func.mock);
+});
+
+// 可得
+{
+      calls: [ [] ],
+      instances: [ mockConstructor {} ],
+      invocationCallOrder: [ 1 ],
+      results: [ { type: 'return', value: 'return value 1' } ]
+    }
+```
+
+
+
+在测试真正的异步请求函数时，一般不会请求真正的接口，如果请求很多，那么测试需要花费很多时间，所以测试时我们只要求请求可以成功发送即可，而不关心返回的具体内容。
+
+假如我们要使用`axios`进行请求，就可以使用`Jest`对`axios`进行模拟：
+
+```typescript
+import axios from "axios";
+
+// 对axios进行模拟
+jest.mock("axios");
+
+// 测试函数
+const fetchData = () => {
+    return axios.get("/api").then(res => res.data);
+};
+
+// 显然axios上是不存在mockResolvedValue的，所以我们需要进行一个断言
+const mockedAxios = axios as jest.Mocked<typeof axios>;
+test("测试 fetchData", async () => {
+  // 在axios发送get请求时，模拟返回数据
+  mockedAxios.get.mockResolvedValue({
+    data: "hello",
+  });
+  
+  await fetchData().then((data) => {
+      expect(data).toBe("hello");
+  });
+});
+```
+
+可以看到，上面使用了`mockResolveVAlue`来模拟成功请求返回的数据，同样的`api`还有`mockResolveVAlueOnce`模拟一次，`mockRejectedValue`、`mockRejectedValueOnce`模拟`reject`。
+
+更多`mock-func api`可以查看[mock-function-api](https://jestjs.io/docs/en/mock-function-api)。
