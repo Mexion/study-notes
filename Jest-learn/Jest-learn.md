@@ -398,7 +398,7 @@ test("callback", () => {
     }
 ```
 
-我们要测试调用次数可以`ecpect(func.mock.calls.length).toBe(2)`，参数和返回值也类似，从`func.mock`上拿到后再匹配即可。
+我们要测试调用次数可以`expect(func.mock.calls.length).toBe(2)`，参数和返回值也类似，从`func.mock`上拿到后再匹配即可。
 
  除了像上面那样给`fn`传参来模拟返回值，也可以使用`mockReturnValue`和`mockReturnValueOnce`：
 
@@ -506,7 +506,7 @@ test("测试createObject", () => {
     }
 ```
 
-
+### mock异步请求
 
 在测试真正的异步请求函数时，一般不会请求真正的接口，如果请求很多，那么测试需要花费很多时间，所以测试时我们只要求请求可以成功发送即可，而不关心返回的具体内容。
 
@@ -539,4 +539,439 @@ test("测试 fetchData", async () => {
 
 可以看到，上面使用了`mockResolveVAlue`来模拟成功请求返回的数据，同样的`api`还有`mockResolveVAlueOnce`模拟一次，`mockRejectedValue`、`mockRejectedValueOnce`模拟`reject`。
 
+测试异步请求，除了去模拟`Axios`，还可以使用另外的方式，不去模拟`Axios`这个库，而是直接去模拟`fetchData`方法，`fetchData`里直接`resolve`或者`reject`请求内容。
+
+假如测试函数写在项目目录的`fetchData.ts`中：
+
+```typescript
+import axios from "axios";
+
+export const fetchData = () => {
+    // 假如data的数据为 "(function(){return'123'})()"
+    return axios.get("/api").then(res => res.data);
+};
+```
+
+我们可以在同级目录新建`__mocks__`文件夹，文件夹中创建一个同名文件`fetchData.ts`，文件中同样写一个`fetchData`函数：
+
+```typescript
+export const fetchData = () => {
+    return new Promise((resolve) => {
+        resolve("(function(){return'123'})()");
+    });
+};
+```
+
+此时我们便可以写测试用例：
+
+```typescript
+import { fetchData } from "./fetchData";
+
+// 我们不去mock axios 而是直接写路径， mock当前文件夹下的fetchData模块
+jest.mock("./fetchData");
+
+test("测试 fetchData", () => {
+    // 当遇到fetchData模块中的内容，就用__mocks__下的替换
+  return fetchData().then(data => {
+    expect(eval(data)).toBe("123");
+  });
+});
+```
+
+但是这里会出现一个问题，假如`fetchData`还导出了另一个同步函数`getNumber`，并且我们不希望这个函数被模拟，如果直接测试肯定会报错，因为`__mocks__`下的模拟模块中并没有导出相同的`getNumber`函数，此时会报`undefined`。要解决这个问题可以这样：
+
+```typescript
+import { fetchData } from "./fetchData";
+// 上面通过正常导入的是mock，下面才是导入真正的
+// requireActual 很好理解 导入真正的
+const { getNumber } = jest.requireActual("./fetchData");
+
+test("测试getNumber", () => {
+    expect(getNumber()).toBe(123);
+})
+```
+
+
+
+### 取消mock
+
+使用`mock`后，取消`mock`可以使用`jest.unmock`，比如`jest.unmock("axios")`或者`jest.unmock("./fetchData")`，此时就可以取消`mock`。
+
+### 自动mock
+
+如果我们使用了`__mocks__`文件夹的方式进行`mock`，可以更改配置文件`jest.config.ts`，将里面的`automock: false`改为`true`，更改后便不需要在测试文件中写`jest.mock`，当我们引入模块并使用模块中的内容时，`jest`会自动去当前目录中的`__mocks__`目录查找同名模块，查找到后会自动使用`mock`替换实际内容。
+
+### mock 定时器
+
+假如有这样一个函数：
+
+```typescript
+export const timerFunc = (cb: Function) => {
+  setTimeout(() => {
+    cb();
+  }, 3000);
+};
+```
+
+这是一个异步函数，所以测试用例如下：
+
+```typescript
+import { timerFunc } from "./timer";
+
+test("测试 timerFunc", (done) => {
+  timerFunc(() => {
+    expect(1).toBe(1);
+    done();
+  });
+});
+```
+
+运行测试用例，这个测试用例会在三秒之后测试结束，但是如果定时器的时间特别长或者有很多定时器，那么就会消耗大量的时间。为了避免这种情况，我们可以使用`mock timers`，测试用例修改如下：
+
+```typescript
+import { timerFunc } from "./timer";
+// 我们先声明使用假的定时器
+jest.useFakeTimers();
+test("测试 timerFunc", () => {
+  // 和之前一样，使用 mock func
+  const fn = jest.fn();
+  // 将mock func传入
+  timerFunc(fn);
+  // 调用所有的定时器
+  jest.runAllTimers();
+  // 我们期望这个函数被执行过一次
+  expect(fn).toBeCalledTimes(1);
+});
+```
+
+此时测试用例会在短暂的时间内测试通过。假如我们修改函数如下：
+
+```typescript
+export const timerFunc = (cb: Function) => {
+  setTimeout(() => {
+    cb();
+    setTimeout(() => {
+      cb();
+    }, 3000);
+  }, 3000);
+};
+```
+
+假如我们使用`runAllTimers`，那么所有的定时器都会被执行，如果我们只想让外部的定时器执行，而不希望内部的定时器执行，可以将`runAllTimers`修改为`runOnlyPendingTimers`，即只运行挂载中的定时器，此时就会只运行外部的定时器，所以就没问题了。
+
+`Jest 22`版本新增了一个更好用的`api`，叫`advanceTimersByTime`，修改测试用例：
+
+```typescript
+import { timerFunc } from "./timer";
+
+jest.useFakeTimers();
+test("测试 timerFunc", () => {
+  const fn = jest.fn();
+  timerFunc(fn);
+  // 让时间快进 3s
+  jest.advanceTimersByTime(3000);
+  expect(fn).toBeCalledTimes(1);
+});
+```
+
+因为我们快进了`3s`，所以只会运行`3s`的外部定时器，而内部的定时器应该在`6s`执行，自然不会执行，所以`toBeCalledTimes`为`1`，假如我们修改`advanceTimersByTime`的参数为`6000`，就会快进`6s`，内部的定时器也会执行，`toBeCalledTimes`也应该改为`2`才能通过。
+
+当然，分多次执行也没问题：
+
+```typescript
+jest.useFakeTimers();
+test("测试 timerFunc", () => {
+  const fn = jest.fn();
+  timerFunc(fn);
+  // 先快进3s 执行一次
+  jest.advanceTimersByTime(3000);
+  expect(fn).toBeCalledTimes(1);
+  // 再快进3s 执行两次
+  jest.advanceTimersByTime(3000);
+  expect(fn).toBeCalledTimes(2);
+});
+```
+
+这也就出现了另一个问题，时间的快进是可以叠加的，如果有多个`test`，可能会造成多个测试用例之间的影响。此时可以使用`beforeEach`来解决，我们在每个测试用例开始前都重新调用一遍`useFakeTimers`对`timers`做一个初始化：
+
+```typescript
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+
+test("测试 timerFunc", () => {
+  const fn = jest.fn();
+  timerFunc(fn);
+  jest.advanceTimersByTime(3000);
+  expect(fn).toBeCalledTimes(1);
+  jest.advanceTimersByTime(3000);
+  expect(fn).toBeCalledTimes(2);
+});
+```
+
+### 对类mock理解单元测试和集成测试
+
+假如我们的`utils.ts`导出了这样一个类：
+
+```typescript
+class Util {
+
+  a(a: any) {
+	// 复杂逻辑
+  }
+
+  b(b: any) {
+	// 复杂逻辑
+  }
+}
+
+export default Util;
+```
+
+它有`a`、`b`两个方法，这两个方法内部的逻辑十分复杂，然后`demoFunction.ts`使用了这个类：
+
+```typescript
+import Util from "./util";
+
+const demoFunction = (a: any, b: any) => {
+  const util = new Util();
+  util.a(a);
+  util.b(b);
+};
+
+export default demoFunction;
+```
+
+现在我们想测试`demoFunction`，如果直接去运行`demoFunction`，因为里面运行的两个函数异常复杂，就会十分消耗性能，并且真实的`a`和`b`的执行对测试没有帮助，所以我们可以创造一个模拟的`Util`类，让这个模拟类里的`a`和`b`执行就可以了，我们可以写如下测试用例：
+
+```typescript
+import demoFunction from "./demo";
+import Util from "./util";
+
+// mock util
+// jest 发现模拟的是一个类时，会自动把类的构造函数和所有方法变成jest.fn()
+jest.mock("./util");
+
+test("测试 demoFunction", () => {
+  //我们调用一次测试函数，内部的Util会被替换成mock util
+  demoFunction(1, 2);
+  // 既然是模拟的，我们就可以追溯到是否执行
+  expect(Util).toHaveBeenCalled();
+  // 对应模拟实例里面的a和b是否执行
+  expect((Util as jest.Mock).mock.instances[0].a).toHaveBeenCalled();
+  expect((Util as jest.Mock).mock.instances[0].b).toHaveBeenCalled();
+});
+```
+
+我们也可以对模拟进行定制，在目录的`__mocks__`目录中新建同名文件`util.ts`：
+
+```typescript
+// 我们可以对里面的构造函数和各个函数自定义
+// 实际上我们不写这个文件，这就是jest帮助我们自动完成的过程
+const Util = jest.fn(() => {
+  // 在fn里自定义逻辑，比如简单的console
+  console.log("util");
+});
+
+Util.prototype.a = jest.fn(() => {
+  console.log("a");
+});
+
+Util.prototype.b = jest.fn(() => {
+  console.log("b");
+});
+
+export default Util;
+```
+
+除了写在`__mocks__`里，也可以换一种形式：
+
+```typescript
+jest.mock("./util", () => {
+    const Util = jest.fn(() => {
+      console.log("util");
+    });
+
+    Util.prototype.a = jest.fn(() => {
+      console.log("a");
+    });
+
+    Util.prototype.b = jest.fn(() => {
+      console.log("b");
+    });
+    // return 出去
+    return Util;
+});
+```
+
+写在`mock`的第二个参数里和写在`__mocks__`同名文件里是一样的。
+
+
+
+到目前我们所做的都是单元测试，所谓单元测试，就是只对当前单元的代码进行测试，就像测试`demoFunction`，我们只关注`demoFunction`这个函数的运行情况，而不关注外部引入的内容，比如`Util`，如果外部引入的东西会造成性能上的损耗，我们就可以用更简单的东西来模拟这些外部的东西，让我们这个单元测试更快，所以在单元测试里使用`mock`很常见，以提升单元测试的性能。
+
+与单元测试不同的是集成测试，集成测试不仅对自己单元的内容做测试，对自己单元中引用的外部模块也一并做测试。
+
 更多`mock-func api`可以查看[mock-function-api](https://jestjs.io/docs/en/mock-function-api)。
+
+## Snapshot 快照测试
+
+在项目中我们一般会有一些配置文件，比如：
+
+```typescript
+export const generateConfig  = () => {
+    return {
+        server: 'http://localhost',
+        port: '8080'
+    };
+};
+```
+
+测试用例如下：
+
+```typescript
+import { generateConfig } from './config.ts';
+ 
+test('测试 generateConfig', () => {
+    expect(generateConfig()).toEqual({
+        server: "http://localhost",
+        port: "8080"
+    });
+});
+```
+
+此时可以测试通过，但是当我们的配置不断增加的时候，测试用例也需要同步更改，否则两边不一致就会导致测试用例无法通过。我们可以使用`toMatchSnapshot`来修改这个测试用例：
+
+```typescript
+test('测试 generateConfig', () => {
+    expect(generateConfig()).toMatchSnapshot();
+});
+```
+
+当第一次执行这个测试用例的时候，会在项目目录下生成`__snapshots__`文件夹，里面根据测试用例的结果生成快照，假设重新进行测试，会再次生成快照与之前的快照做匹配，假如两个快照相同，则测试通过，否则不通过。
+
+此时如果要确认修改，可以刷新快照，在`watch`或者`watchAll`模式下可以按`w`显示命令行工具菜单，此时可以看到里面有`u`这个选项，按下`u`即可生成新的快照替换老的快照。当然，不在`watch`模式下也可以更新快照，使用`npx jest --updateSnapshot`或者`npx jest -u`命令即可。
+
+假如有两个测试用例快照都失败，但是我们只想更新某一个，可以在`watch`或者`watchAll`模式下按`w`然后按`i`进入交互模式，根据提示来对每一个失败的快照进行操作，如果要通过就按`u`，跳过就按`s`，退出交互模式按`q`。
+
+可以使用`--testNamePattern`或`-t`来只更新与正则匹配的测试用例，比如`npx jest -t=generateConfig`那么就只会测试描述中包含`generateConfig`的测试用例。
+
+有时候，可能配置文件里并不是写死的，而是动态变化的，比如`new Date()`：
+
+```typescript
+export const generateConfig  = () => {
+    return {
+        server: 'http://localhost',
+        port: '8080',
+        time: new Date(),
+    };
+};
+```
+
+此时测试用例就会始终无法通过，因为两个时间不会相等。此时可以修改测试用例如下：
+
+```typescript
+test('测试 generateConfig', () => {
+    // toMatchSnapshot里写对象，对象中的time可以是任何Date
+    // 不必每次都相等
+    expect(generateConfig()).toMatchSnapshot({
+        time: expect.any(Date),
+    });
+});
+```
+
+当然，`any`里可以传任何类型，比如`Number`，`String`。
+
+### 内联快照
+
+以上生成的`Snapshot`会生成外部文件，除了这种方式，我们也可以使用`内联快照`。在使用`内联快照`之前，我们需要在项目中安装`prettier`，因为这个功能是依托于`prettier`的，使用`npm`或`yarn`安装即可。
+安装好之后，我们把`toMatchSnapshot`更改为`toMatchInlineSnapshot`即可：
+```typescript
+test('测试 generateConfig', () => {
+    expect(generateConfig()).toMatchInlineSnapshot({
+        time: expect.any(Date),
+    });
+});
+```
+重新运行测试，会看到此测试用例会改成：
+```typescript
+test("测试 generateConfig", () => {
+  expect(generateConfig()).toMatchInlineSnapshot(
+    {
+      time: expect.any(Date),
+    },
+    `
+    Object {
+      "domain": "localhost",
+      "port": "8080",
+      "server": "http://localhost",
+      "time": Any<Date>,
+    }
+  `
+  );
+});
+```
+
+快照会以字符串模板的形式作为`toMatchInlineSnapshot`的第二个参数进行保存。
+
+## DOM测试
+
+在`Jest`中进行`DOM`测试非常简单，直接进行`DOM`操作即可，比如我们有一个`addDivToBody`函数，这个函数很简单，每调用一次就向`body`中插入一个`div`：
+
+```typescript
+export const addDivToBody = () => {
+  const body = document.querySelector("body");
+  body?.append(document.createElement("div"));
+};
+```
+
+可以直接这样写测试用例：
+
+```typescript
+import { addDivToBody } from "./dom";
+
+test.only("测试 addDivToBody", () => {
+  addDivToBody();
+  addDivToBody();
+  expect(document.querySelector("body")?.querySelectorAll("div").length).toBe(2);
+});
+```
+
+`Jest`实际的运行环境实际上是`node`，之所以可以直接操作`DOM`是因为它模拟了一套`DOM`的`api`，即`jsdom`。
+
+## Vue中的TDD与单元测试
+
+### 什么是TDD？
+
+`TDD`即`Test Driven Development`，测试驱动开发，简单来说就是先写测试用例再写代码。
+
+`TDD`的开发流程如下：
+
+1. 编写测试用例。
+2. 运行测试，测试用例无法通过测试。
+3. 编写代码，使测试用例通过测试。
+4. 优化代码，完成开发。
+5. 重复上述步骤。
+
+`TDD`的优势如下：
+
+- 长期减少回归`bug`。
+- 代码质量更好（组织、可维护性）。
+- 测试覆盖率高。
+- 错误测试代码不容易出现。
+
+###  Vue环境中使用Jest
+
+首先安装`Vue`脚手架：
+
+```bash
+yarn add @vue/cli -g
+```
+
+安装完成后生成项目：
+
+```bash
+vue create jest-vue
+```
+
+我们选择`Manually select features`自定义安装，根据需求选择配置项，多选时空格选择，回车下一步，在选择时我们除了自己的需求之外，还需要选择`Unit Testing`这个选项，在`Pick a unit testing solution`时选择`Jest`，创建完成后我们可以更改`package.json`下的`scripts`中的`"test:unit"`为`"vue-cli-service test:unit --watch"`开启监控模式，然后运行`yarn run test:unit`。
