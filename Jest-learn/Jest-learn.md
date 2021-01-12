@@ -55,7 +55,7 @@ module.exports = {
 | `toBeLessThanOrEqual`    | `toBeLessThanOrEqual`只能接收`number | bigint`， 表示测试结果要小于等于预期值。 |
 | `toBeCloseTo`            | `toBeCloseTo`只能接收`number`，表示测试结果接近预期值。它可以接收第二个参数限制小数点后要检查的位数。默认值`2`，即`Math.abs(expected - received) < 0.005`。这个匹配器可以解决计算浮点数的精度问题，比如著名的`0.1+0.2`，期望值是`0.3`，用`toEqual`不能通过测试，会有精度问题。 |
 | `toBeNaN`                | `toBeNaN`测试结果是不是`NaN`。                               |
-| `toMatch`                | `toMatch`可以接收`regexp | string`，当接收的是字符串时，测试结果是否包含期望字符串，当接收一个正则时，会与表达式匹配。 |
+| `toMatch`                | `toMatch`可以接收`regexp | string`，当接收的是字符串时，测试结果是否**包含**期望字符串，当接收一个正则时，会与表达式匹配。 |
 | `toContain`              | `toContain`测试结果是否在预期数组或`Set`中，还可以测试结果字符串是否是预期字符串的子串。 |
 | `toThrow`                | `toThrow`测试目标函数是否抛出异常，`toThrow`可以接收参数，只有抛出的异常是参数这个异常才可以通过，比如`toThrow("this is an error")`表示抛出的异常为`this is an error`才可以通过，参数也可以写正则表达式。如果测试不抛出异常，可以使用`.not.toThrow`。 |
 | `toMatchObject`          | `toMatchObject`测试预期对象是不是结果的子集。                |
@@ -974,4 +974,65 @@ yarn add @vue/cli -g
 vue create jest-vue
 ```
 
-我们选择`Manually select features`自定义安装，根据需求选择配置项，多选时空格选择，回车下一步，在选择时我们除了自己的需求之外，还需要选择`Unit Testing`这个选项，在`Pick a unit testing solution`时选择`Jest`，创建完成后我们可以更改`package.json`下的`scripts`中的`"test:unit"`为`"vue-cli-service test:unit --watch"`开启监控模式，然后运行`yarn run test:unit`。
+我们选择`Manually select features`自定义安装，根据需求选择配置项，多选时空格选择，回车下一步，在选择时我们除了自己的需求之外，还需要选择`Unit Testing`这个选项，在`Pick a unit testing solution`时选择`Jest`，创建完成后我们可以更改`package.json`下的`scripts`中的`"test:unit"`为`"vue-cli-service test:unit --watch"`开启监控模式，然后运行`yarn run test:unit`即可开启测试。
+
+在根目录的`tests/unit`下有一个`example.spec.ts`，这是一个示例测试文件，我们可以通过这个文件来了解`jest`在`Vue`中的使用：
+
+```typescript
+// 首先从 test-utils中引入了shallowMount
+import { shallowMount } from "@vue/test-utils";
+// 需要测试 HelloWorld 这个组件
+import HelloWorld from "@/components/HelloWorld.vue";
+
+// describe 不用多说
+describe("HelloWorld.vue", () => {
+  // it 是 test 的别名
+  it("renders props.msg when passed", () => {
+    const msg = "new message";
+    // shallowMount 即浅挂载 只挂载组件而忽略组件的子组件的挂载
+    // 所以shallowMount适合单元测试使用
+    // 与之相对的是 mount，会挂载组件以及子组件，适合集成测试使用
+    // 通过 propsData向组件传递props
+    // shallowMount 会返回 wrapper
+    // wrapper 上挂载了一系列的方法，以便进行测试
+    const wrapper = shallowMount(HelloWorld, {
+      propsData: { msg }
+    });
+    // wrapper.text() 返回组件所有元素的文本内容
+    // 所有元素的文本会拼接成一个字符串，toMatch会用正则匹配
+    expect(wrapper.text()).toMatch(msg);
+  });
+});
+```
+
+`wrapper`上挂载了一系列方法，除了上面用到的`text`返回组件中所有元素的文本内容，还有`find`查找组件内的一个`DOM`元素，`findAll`查找多个元素，它们的用法和`querySelector`与`querySelectorAll`类似。`props`可以拿到对应参数`key`的`prop`。其它的更多方法可以访问[wrapper-methods](https://vue-test-utils.vuejs.org/v2/api/#wrapper-methods)。
+
+### Vue组件的快照测试
+
+在测试一个组件可以正常渲染，而先不测功能的时候，可以这样写测试用例：
+
+```typescript
+describe("HelloWorld.vue", () => {
+  it("测试组件正常渲染", () => {
+    const msg = "new message";
+    const wrapper = shallowMount(HelloWorld, {
+      propsData: { msg }
+    });
+    expect(wrapper).toMatchSnapshot();
+  });
+});
+```
+
+只要组件第一次可以渲染，`Jest`就会帮助我们生成快照如下：
+
+```typescript
+exports[`HelloWorld.vue 测试组件正常渲染 1`] = `
+<div class="hello">
+  <h1>abc</h1>
+  <h1>new message</h1>
+</div>
+`;
+```
+
+快照的使用可以让我们及时捕获到`UI`的变化，如果组件在此后的渲染中，渲染结果与之不一致，则测试就无法通过，如果确定要更新快照，可以使用`-u`或者在监控模式下进行。
+
