@@ -1036,3 +1036,305 @@ exports[`HelloWorld.vue 测试组件正常渲染 1`] = `
 
 快照的使用可以让我们及时捕获到`UI`的变化，如果组件在此后的渲染中，渲染结果与之不一致，则测试就无法通过，如果确定要更新快照，可以使用`-u`或者在监控模式下进行。
 
+### 一些测试示例
+
+测试用例如下：
+
+```typescript
+import { shallowMount } from "@vue/test-utils";
+import Header from "../../src/components/Header.vue";
+
+describe("Header 组件", () => {
+  it("组件发生改变，需做提示", () => {
+    const wrapper = shallowMount(Header);
+    // 使用 snapshot确定组件形态
+    expect(wrapper).toMatchSnapshot();
+  });
+
+  it("输入框存在", () => {
+    const wrapper = shallowMount(Header);
+    const input = wrapper.find("[data-test=input]");
+    // exists 验证通过find找到的元素是否存在
+    expect(input.exists()).toBe(true);
+  });
+
+  it("输入框初始内容为空", () => {
+    const wrapper = shallowMount(Header);
+    // wrapper.vm 可以拿到 vue 实例
+    const inputValue = wrapper.vm.$data.inputValue;
+    expect(inputValue).toBe("");
+  });
+
+  it("输入框值发生变化，数据跟随变化", () => {
+    const wrapper = shallowMount(Header);
+    const input = wrapper.find("[data-test=input]");
+    // setValue 在DOM元素上设置一个值
+    input.setValue("init-center");
+    const inputValue = wrapper.vm.$data.inputValue;
+    expect(inputValue).toBe("init-center");
+  });
+
+  it("输入框回车时，无内容，无反应", async () => {
+    const wrapper = shallowMount(Header);
+    const input = wrapper.find("[data-test=input]");
+    input.setValue("");
+    // trigger 可以触发 DOM 的事件
+    // 由于事件通常会导致重新渲染，因此trigger将返回Vue.nextTick。
+    // 调用trigger时，应使用await来确保在断言前Vue更新DOM。
+    // trigger 第二个参数可以给事件传递参数
+    // await wrapper.trigger('keydown', { keyCode: 65 })
+    await input.trigger("keyup.enter");
+    // wrapper.emitted 可以得到wrapper触发的事件
+    // 比如组件内触发了这样一个事件 this.$emit('greet', 'hello')
+    // 可以这样 expect(wrapper.emitted().greet[0]).toEqual(['hello'])
+    // 取0表示第一次触发，取1表示第二次触发，以此类推
+    // 比如触发了两次 this.$emit('greet', 'hello'); this.$emit('greet', 'goodbye')
+    //{ greet: [ ['hello'], ['goodbye'] ]}
+    expect(wrapper.emitted().add).toBeFalsy();
+  });
+
+  it("输入框回车时，有内容时，向外触发事件, 同时清空 inputValue", async () => {
+    const wrapper = shallowMount(Header);
+    const input = wrapper.findAll("[data-test=input]").at(0);
+    input.setValue("init-center");
+    await input.trigger("keyup.enter");
+    expect(wrapper.emitted().add).toBeTruthy();
+    expect(wrapper.vm.$data.inputValue).toBe("");
+  });
+});
+```
+
+可以写出如下组件：
+
+```vue
+<template>
+  <div class="header">
+    <div class="header-content">
+      TodoList
+      <input
+        class="header-input"
+        data-test="input"
+        v-model="inputValue"
+        @keyup.enter="addTodoItem"
+        placeholder="Add TodoItem"
+      />
+    </div>
+  </div>
+</template>
+
+<script>
+export default {
+  name: "Header",
+  data() {
+    return {
+      inputValue: ""
+    };
+  },
+  methods: {
+    addTodoItem() {
+      if (this.inputValue) {
+        this.$emit("add", this.inputValue);
+        this.inputValue = "";
+      }
+    }
+  }
+};
+</script>
+
+<style scoped lang="stylus">
+.header {
+  line-height: 60px;
+  background: #333;
+}
+.header-content {
+  width: 600px;
+  margin: 0 auto;
+  color: #FFF;
+  font-size: 24px;
+}
+.header-input {
+  float: right;
+  width: 360px;
+  margin-top: 16px;
+  line-height: 24px;
+  outline: none;
+  color: #333;
+  text-indent: 10px;
+}
+</style>
+```
+
+更多`Api`可以查看[Vue Test Utils](https://vue-test-utils.vuejs.org/v2/api/)。
+
+## React中的TDD与单元测试
+
+### React环境中使用Jest
+
+首先使用`create-react-app`创建项目：
+
+```bash
+ yarn create react-app jest-react --template typescript
+```
+
+`jest`是`create-react-app`的默认测试框架，所以不需要我们自己安装。
+
+### 使用Enzyme
+
+`Enzyme`是一个`react`的测试库，我们进行安装：
+
+```bash
+yarn add -D enzyme enzyme-adapter-react-16
+```
+
+如果是`typescript`还要安装类型声明文件：
+
+```bash
+yarn add -D @types/enzyme @types/enzyme-adapter-react-16
+```
+
+测试组件如下：
+
+```tsx
+import React from 'react';
+
+function App() {
+  return (
+    <div className="App" title="hello">
+      Hello World !
+    </div>
+  );
+}
+
+export default App;
+```
+
+测试用例如下：
+
+```tsx
+import React from "react";
+import Enzyme, { shallow } from "enzyme";
+import Adapter from "enzyme-adapter-react-16";
+import App from "./App";
+
+Enzyme.configure({ adapter: new Adapter() });
+
+it("渲染 App", () => {
+  // shallow只渲染第一层，而不渲染子组件
+  // 与之对应的是mount，渲染组件同时渲染子组件
+  const wrapper = shallow(<App />);
+  const app = wrapper.find(".App");
+  expect(app.length).toBe(1);
+  expect(app.prop("title")).toBe("hello");
+})
+```
+
+更多`Api`可以查看[Api Reference](https://enzymejs.github.io/enzyme/docs/api/)。
+
+### 使用 Jest-enzyme
+
+`jest-enzyme`是一个让`enzyme`测试更方便的库，它添加了很多的匹配器，首先安装：
+
+```bash
+yarn add jest-enzyme -D
+```
+
+在根目录新增`setupTests.ts`文件：
+```typescript
+import 'jest-enzyme';
+```
+然后就可以写如下测试用例：
+```typescript
+it("渲染 App", () => {
+  const wrapper = shallow(<App />);
+  // instance()可以拿到实例
+  expect(wrapper.instance()).toBeInstanceOf(Header);
+  const app = wrapper.find(".App");
+  expect(app).toExist();
+  expect(app).toHaveProp("title", "hello");
+})
+```
+
+更多匹配器可以查看[Assertions](https://www.npmjs.com/package/jest-enzyme#assertions)。
+
+### 使用快照
+
+使用快照：
+
+```tsx
+it("渲染 App", () => {
+  const wrapper = shallow(<App />);
+  expect(wrapper).toMatchSnapshot();
+})
+```
+
+### 一些测试示例
+
+```tsx
+it('Header 渲染样式正常', () => {
+  const wrapper = shallow(<Header />);
+  expect(wrapper).toMatchSnapshot();
+});
+
+it('Header 组件包含一个 input 框', () => {
+  const wrapper = shallow(<Header />);
+  const inputElem = wrapper.find("[data-test='input']");
+  expect(inputElem.length).toBe(1);
+});
+
+it('Header 组件 input 框内容，初始化应该为空', () => {
+  const wrapper = shallow(<Header />);
+  const inputElem = wrapper.find("[data-test='input']");
+  expect(inputElem.prop('value')).toEqual('');
+});
+
+it('Header 组件 input 框内容，当用户输入时，会跟随变化', () => {
+  const wrapper = shallow(<Header />);
+  const inputElem = wrapper.find("[data-test='input']");
+  const userInput = '今天要学习 Jest';
+  // simulate 可以模拟DOM事件
+  // 可以更改target上的属性
+  inputElem.simulate('change', {
+    target: { value: userInput}
+  });
+  expect(wrapper.state('value')).toEqual(userInput);
+});
+
+it('Header 组件 input 框输入回车时，如果 input 无内容，无操作', () => {
+  const fn = jest.fn();
+  const wrapper = shallow(<Header addUndoItem={fn} />);
+  const inputElem = wrapper.find("[data-test='input']");
+  wrapper.setState({ value: ''})
+  inputElem.simulate('keyUp', {
+    keyCode: 13
+  });
+  expect(fn).not.toHaveBeenCalled();
+});
+
+it('Header 组件 input 框输入回车时，如果 input 有内容，函数应该被调用', () => {
+  const fn = jest.fn();
+  const wrapper = shallow(<Header addUndoItem={fn} />);
+  const inputElem = wrapper.find("[data-test='input']");
+  const userInput = '学习 React';
+  wrapper.setState({ value: userInput})
+  inputElem.simulate('keyUp', {
+    keyCode: 13
+  });
+  expect(fn).toHaveBeenCalled();
+  expect(fn).toHaveBeenLastCalledWith(userInput);
+})
+
+it('Header 组件 input 框输入回车时，如果 input 有内容，最后应该清除掉', () => {
+  const fn = jest.fn();
+  const wrapper = shallow(<Header addUndoItem={fn} />);
+  const inputElem = wrapper.find("[data-test='input']");
+  const userInput = '学习 React';
+  wrapper.setState({ value: userInput})
+  inputElem.simulate('keyUp', {
+    keyCode: 13
+  });
+  const newInputElem = wrapper.find("[data-test='input']");
+  expect(newInputElem.prop('value')).toBe('');
+})
+
+```
+
