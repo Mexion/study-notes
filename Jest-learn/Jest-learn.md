@@ -1166,7 +1166,7 @@ export default {
 
 更多`Api`可以查看[Vue Test Utils](https://vue-test-utils.vuejs.org/v2/api/)。
 
-## React中的TDD与单元测试
+## React中的单元测试
 
 ### React环境中使用Jest
 
@@ -1338,3 +1338,121 @@ it('Header 组件 input 框输入回车时，如果 input 有内容，最后应�
 
 ```
 
+## Vue中的BDD与集成测试
+
+`BDD`即`行为驱动开发（Behavior Driven Development）`，基于功能先写代码，再基于用户行为编写测试用例。
+
+比如用户会在输入框输入内容回车后，列表会多出一项内容，根据这一用户行为，我们就可以编写集成测试，将输入框组件和列表组件集成进行测试。这一点和单元测试的区别在于，单元测试如果要测输入框组件，那么就只关注输入框输入后的结果，而不关注列表组件的结果。
+
+举个例子：
+
+```typescript
+it(`
+  1. 用户会在header输入框输入内容
+  2. 用户会点击回车按钮
+  3. 列表项应该增加用户输入内容的列表项
+`, () => {
+  // 第二个参数的对象里可以传store挂载vuex进行集成测试
+  const wrapper = mount(TodoList, { store });
+  const inputElem = wrapper.find("[data-test=header-input]");
+  const content = "Hello World";
+  inputElem.setValue(content);
+  inputElem.trigger('change');
+  inputElem.trigger('keyup.enter');
+  const listItems = wrapper.findAll("[data-test=list-item]");
+  expect(listItems.length).toBe(1);
+  expect(listItems.at(0).text()).toContain(content);
+});
+```
+
+## React中的集成测试
+
+举个例子：
+
+```tsx
+it(`
+  1. Header 输入框输入内容
+  2. 点击回车
+  3. 列表中展示用户输入的内容项
+`, () => {
+  // 使用react-redux直接包裹组件即可
+  const wrapper = mount(
+    <Provider store={store}><TodoList /></Provider>
+  );
+  const inputElem = wrapper.find("[data-test=header-input]");
+  const content = "Hello World";
+  inputElem.simulate("change", {
+    target: {value: content}
+  });
+  inputElem.simulate("keyUp", {
+    keyCode: 13
+  });
+  const listItem = wrapper.findAll("[data-test=list-item]");
+  expect(listItem.length).toEqual(1);
+  expect(listItem.text()).toContain(content);
+});
+
+beforeEach(() => {
+  jest.useFakeTimers();
+});
+
+it(`
+  1. 用户打开页面,请求正常
+  2. 应该展示接口返回的数据
+`, (done) => {
+  const wrapper = mount(
+    <Provider store={store}><TodoList /></Provider>
+  );
+  // 使用process.nextTick或者setTimeout延迟断言
+  process.nextTick(() => {
+    wrapper.update();
+    const listItem = wrapper.findAll("[data-test=list-item]");
+    expect(listItem.length).toBe(1);
+    done();
+  })
+
+});
+
+it(`
+  1. 用户打开页面
+  2. 五秒后
+  3. 应该展示接口返回的数据
+`, (done) => {
+  const wrapper = mount(
+    <Provider store={store}><TodoList /></Provider>
+  );
+
+  jest.runAllTimers();
+  // 断言setTimeout执行了一次
+  expect(setTimeout).toHaveBeenCalledTimes(1);
+
+  process.nextTick(() => {
+    // 需要手动update一下
+    wrapper.update();
+    const listItem = wrapper.findAll("[data-test=list-item]");
+    expect(listItem.length).toBe(1);
+    done();
+  })
+
+});
+```
+
+
+
+## TDD 和 BDD 的区别
+
+`TDD`：
+
+- 先写测试再写代码。
+- 一般结合单元测试使用，是白盒测试。
+- 测试重点在代码。
+- 安全感低。
+- 速度快。
+
+`BDD`：
+
+- 先写代码再写测试。
+- 一般结合集成测试使用，是黑盒测试。
+- 测试重点在`UI`。
+- 安全感高。
+- 速度慢。
