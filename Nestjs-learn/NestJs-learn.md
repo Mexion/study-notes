@@ -2079,3 +2079,3009 @@ export class ArticleController {
 }
 ```
 
+## 使用TypeORM操作MySQL
+
+为了与 `SQL`和 `NoSQL` 数据库集成，`Nest` 提供了 `@nestjs/typeorm` 包。`Nest` 使用[TypeORM](https://github.com/typeorm/typeorm)是因为它是 `TypeScript` 中最成熟的对象关系映射器( `ORM` )。因为它是用 `TypeScript` 编写的，所以可以很好地与 `Nest` 框架集成。
+
+### 连接数据库
+
+为了开始使用它，我们首先安装所需的依赖项。
+
+```bash
+ yarn add  @nestjs/typeorm typeorm mysql
+```
+
+安装完成后就可以在根模块中引入：
+
+```typescript
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+@Module({
+  imports: [
+    // 引入TypeOrmModule
+    TypeOrmModule.forRoot({
+      type: 'mysql',
+      host: 'localhost',
+      port: 3306,
+      username: 'root',
+      password: 'root',
+      database: 'test',
+      charset: 'utf8mb4',
+      entities: ['./**/*.entity{.ts,.js}'],
+      // synchronize: true 不应在生产模式使用，否则可能会丢失生产数据
+      synchronize: true,
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+`forRoot()` 方法支持所有`TypeORM`包中`createConnection()`函数暴露出的配置属性。其他一些额外的配置参数描述如下：
+
+| 参数                | 说明                                                     |
+| :------------------ | :------------------------------------------------------- |
+| retryAttempts       | 重试连接数据库的次数（默认：10）                         |
+| retryDelay          | 两次重试连接的间隔(ms)（默认：3000）                     |
+| autoLoadEntities    | 如果为`true`,将自动加载实体(默认：false)                 |
+| keepConnectionAlive | 如果未`true`，在应用程序关闭后连接不会关闭（默认：false) |
+
+ 更多连接选项见[这里](https://typeorm.io/#/connection-options) 。
+
+另外，我们可以在根目录创建 `ormconfig.json` ，而不是将配置对象传递给 `forRoot()`。
+
+```json
+{
+  "type": "mysql",
+  "host": "localhost",
+  "port": 3306,
+  "username": "root",
+  "password": "root",
+  "database": "test",
+  "entities": ["dist/**/*.entity{.ts,.js}"],
+  "synchronize": true
+}
+```
+
+然后，我们可以不带任何选项地调用 `forRoot()` :
+
+```typescript
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+@Module({
+  imports: [TypeOrmModule.forRoot()],
+})
+export class AppModule {}
+```
+
+ 一旦完成，`TypeORM` 的`Connection`和 `EntityManager` 对象就可以在整个项目中注入(不需要导入任何模块) ，例如：
+
+```typescript
+import { Connection } from 'typeorm';
+
+@Module({
+  imports: [TypeOrmModule.forRoot(), PhotoModule],
+})
+export class AppModule {
+  constructor(private readonly connection: Connection) {}
+}
+```
+
+### 创建实体（Entity）
+
+ 实体是一个映射到数据库表（或使用 `MongoDB` 时的集合）的类。 你可以通过定义一个新类来创建一个实体，并用`@Entity()`来标记，比如下面是一个文章实体类： 
+
+```typescript
+// src/entities/article.entity.ts
+
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, DeleteDateColumn } from 'typeorm';
+
+
+@Entity('article')
+export class ArticleEntity {
+  // PrimaryGeneratedColumn创建自增主键
+  @PrimaryGeneratedColumn({
+    type: 'int',
+    comment: '主键id',
+  })
+  id: number;
+
+  @Column('varchar', {
+    nullable: false,
+    comment: '文章标题',
+  })
+  title: string;
+
+  @Column('varchar', {
+    nullable: false,
+    comment: '文章内容',
+  })
+  content: string;
+
+  @Column({
+    nullable: false,
+    name: 'category_id',
+    comment: '文章类别',
+  })
+  categoryID: string;
+
+  @Column('varchar', {
+    nullable: true,
+    comment: '文章简介',
+  })
+  intro: string;
+
+  @Column('varchar', {
+    nullable: true,
+    comment: '文章封面',
+  })
+  cover: string;
+
+  @Column('varchar', {
+    nullable: true,
+    comment: '文章标签',
+  })
+  tags: string;
+
+  @Column('enum', {
+    nullable: false,
+    default: 0,
+    enum: [0, 1, 2],
+    comment: '文章状态，0为编辑中，1为已发布，2为不可用',
+  })
+  status: number;
+
+  @CreateDateColumn({
+    type: 'timestamp',
+    name: 'created_at',
+    comment: '创建时间',
+  })
+  createdAt: Date;
+
+  @UpdateDateColumn({
+    type: 'timestamp',
+    name: 'updated_at',
+    comment: '最后更新时间',
+  })
+  updatedAt: Date;
+
+  @DeleteDateColumn({
+    type: 'timestamp',
+    name: 'delete_at',
+    comment: '删除',
+  })
+  deleteAt: Date;
+}
+```
+
+假如要为`Article`实体使用替代表名，可以在`@Entity`中指定：`@Entity（“my_article”）`。 如果要为应用程序中的所有数据库表设置基本前缀，可以在连接选项中指定`entityPrefix`。
+
+#### 实体列
+
+##### 主列
+
+每个实体必须至少有一个主列。 有几种类型的主列：
+
+- `@PrimaryColumn()` 创建一个主列，它可以获取任何类型的任何值。你也可以指定列类型。 如果未指定列类型，则将从属性类型自动推断。
+
+下面的示例将使用`int`类型创建 `id`，你必须在保存数据时手动分配。
+
+```typescript
+import { Entity, PrimaryColumn } from "typeorm";
+
+@Entity()
+export class User {
+    @PrimaryColumn()
+    id: number;
+}
+```
+
+- `@PrimaryGeneratedColumn()` 创建一个主列，该值将使用自动增量值自动生成。 它将使用`auto-increment` /`serial` /`sequence`创建`int`列（取决于数据库）。 你不必在保存数据时手动分配其值，该值将会自动生成。
+
+```typescript
+import { Entity, PrimaryGeneratedColumn } from "typeorm";
+
+@Entity()
+export class User {
+    @PrimaryGeneratedColumn()
+    id: number;
+}
+```
+
+- `@PrimaryGeneratedColumn("uuid")` 创建一个主列，该值将使用`uuid`自动生成。 `Uuid` 是一个独特的字符串 `id`。 你不必在保存之前手动分配其值，该值将自动生成。
+
+```typescript
+import { Entity, PrimaryGeneratedColumn } from "typeorm";
+
+@Entity()
+export class User {
+    @PrimaryGeneratedColumn("uuid")
+    id: string;
+}
+```
+
+你也可以拥有复合主列：
+
+```typescript
+import { Entity, PrimaryColumn } from "typeorm";
+
+@Entity()
+export class User {
+    @PrimaryColumn()
+    firstName: string;
+
+    @PrimaryColumn()
+    lastName: string;
+}
+```
+
+当您使用`save`保存实体时，它总是先尝试使用给定的实体 `ID（或 ids）`在数据库中查找实体。 如果找到 `id / ids`，则将更新数据库中的这一行。 如果没有包含 `id / ids` 的行，则会插入一个新行。
+
+要通过 `id` 查找实体，可以使用`manager.findOne`或`repository.findOne`。 例：
+
+```typescript
+// 使用单个主键查找一个id
+const person = await connection.manager.findOne(Person, 1);
+const person = await connection.getRepository(Person).findOne(1);
+
+// 使用复合主键找到一个id
+const user = await connection.manager.findOne(User, { firstName: "Timber", lastName: "Saw" });
+const user = await connection.getRepository(User).findOne({ firstName: "Timber", lastName: "Saw" });
+```
+
+##### 特殊列
+
+有几种特殊的列类型可以使用：
+
+- `@CreateDateColumn` 是一个特殊列，自动为实体插入日期。无需设置此列，该值将自动设置。
+- `@UpdateDateColumn` 是一个特殊列，在每次调用实体管理器或存储库的`save`时，自动更新实体日期。无需设置此列，该值将自动设置。
+- `@VersionColumn` 是一个特殊列，在每次调用实体管理器或存储库的`save`时自动增长实体版本（增量编号）。无需设置此列，该值将自动设置。
+
+#### 列类型
+
+`TypeORM` 支持所有最常用的数据库支持的列类型。 列类型是特定于数据库类型的，这为数据库架构提供了更大的灵活性。 你可以将列类型指定为`@ Column`的第一个参数 或者在`@Column`的列选项中指定，例如：
+
+```typescript
+@Column("int")
+```
+
+或
+
+```typescript
+@Column({ type: "int" })
+```
+
+如果要指定其他类型参数，可以通过列选项来执行。 例如:
+
+```typescript
+@Column("varchar", { length: 200 })
+```
+
+或
+
+```typescript
+@Column({ type: "int", length: 200 })
+```
+
+`mysql`支持以下类型：
+
+ `int`, `tinyint`, `smallint`, `mediumint`, `bigint`, `float`, `double`, `dec`, `decimal`, `numeric`, `date`, `datetime`, `timestamp`, `time`, `year`, `char`, `varchar`, `nvarchar`, `text`, `tinytext`, `mediumtext`, `blob`, `longtext`, `tinyblob`, `mediumblob`, `longblob`, `enum`, `json`, `binary`, `geometry`, `point`, `linestring`, `polygon`, `multipoint`, `multilinestring`, `multipolygon`, `geometrycollection` 。
+
+其他数据库类型参见[column-types](https://typeorm.io/#/entities/column-types-for-mysql--mariadb)。
+
+##### enum列类型
+
+`postgres`和`mysql`都支持`enum`列类型。 并有多种列定义方式：
+
+使用typescript枚举：
+
+```typescript
+export enum UserRole {
+    ADMIN = "admin",
+    EDITOR = "editor",
+    GHOST = "ghost"
+}
+
+@Entity()
+export class User {
+
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column({
+        type: "enum",
+        enum: UserRole,
+        default: UserRole.GHOST
+    })
+    role: UserRole
+
+}
+```
+
+> 注意：支持字符串，数字和异构枚举。
+
+使用带枚举值的数组：
+
+```typescript
+export type UserRoleType = "admin" | "editor" | "ghost",
+
+@Entity()
+export class User {
+
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column({
+        type: "enum",
+        enum: ["admin", "editor", "ghost"],
+        default: "ghost"
+    })
+    role: UserRoleType
+}
+```
+
+##### simple-json 列类型
+
+有一种称为`simple-array`的特殊列类型，它可以将原始数组值存储在单个字符串列中。 所有值都以逗号分隔。 例如：
+
+```typescript
+@Entity()
+export class User {
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column("simple-array")
+    names: string[];
+}
+```
+
+```typescript
+const user = new User();
+user.names = ["Alexander", "Alex", "Sasha", "Shurik"];
+```
+
+存储在单个数据库列中的`Alexander，Alex，Sasha，Shurik`值。 当你从数据库加载数据时，name 将作为 names 数组返回，就像之前存储它们一样。
+
+注意**不能**在值里面有任何逗号。
+
+##### 具有生成值的列
+
+你可以使用`@Generated`装饰器创建具有生成值的列。 例如：
+
+```typescript
+@Entity()
+export class User {
+    @PrimaryColumn()
+    id: number;
+
+    @Column()
+    @Generated("uuid")
+    uuid: string;
+}
+```
+
+`uuid`值将自动生成并存储到数据库中。
+
+除了`"uuid"`之外，还有`"increment"`生成类型，但是对于这种类型的生成，某些数据库平台存在一些限制（例如，某些数据库只能有一个增量列，或者其中一些需要增量才能成为主键）。
+
+#### 列选项
+
+列选项定义实体列的其他选项。 你可以在`@Column`上指定列选项：
+
+```typescript
+@Column({
+    type: "varchar",
+    length: 150,
+    unique: true,
+    // ...
+})
+name: string;
+```
+
+`ColumnOptions`中可用选项列表：
+
+- `type: ColumnType` - 列类型。
+- `name: string` - 数据库表中的列名。默认情况下，列名称是从属性的名称生成的。 你也可以通过指定自己的名称来更改它。
+
+- `length: number` - 列类型的长度。 例如，如果要创建`varchar（150）`类型，请指定列类型和长度选项。
+- `width: number` - 列类型的显示范围。 仅用于[MySQL integer types(opens new window)](https://dev.mysql.com/doc/refman/5.7/en/integer-types.html)
+- `onUpdate: string` - `ON UPDATE`触发器。 仅用于 [MySQL (opens new window)](https://dev.mysql.com/doc/refman/5.7/en/timestamp-initialization.html).
+- `nullable: boolean` - 在数据库中使列`NULL`或`NOT NULL`。 默认情况下，列是`nullable：false`。
+- `update: boolean` - 指示`"save"`操作是否更新列值。如果为`false`，则只能在第一次插入对象时编写该值。 默认值为`"true"`。
+- `select: boolean` - 定义在进行查询时是否默认隐藏此列。 设置为`false`时，列数据不会显示标准查询。 默认情况下，列是`select：true`
+- `default: string` - 添加数据库级列的`DEFAULT`值。
+- `primary: boolean` - 将列标记为主要列。 使用方式和`@ PrimaryColumn`相同。
+- `unique: boolean` - 将列标记为唯一列（创建唯一约束）。
+- `comment: string` - 数据库列备注，并非所有数据库类型都支持。
+- `precision: number` - 十进制（精确数字）列的精度（仅适用于十进制列），这是为值存储的最大位数。仅用于某些列类型。
+- `scale: number` - 十进制（精确数字）列的比例（仅适用于十进制列），表示小数点右侧的位数，且不得大于精度。 仅用于某些列类型。
+- `zerofill: boolean` - 将`ZEROFILL`属性设置为数字列。 仅在 `MySQL`中使用。 如果是`true`，`MySQL`会自动将`UNSIGNED`属性添加到此列。
+- `unsigned: boolean` - 将`UNSIGNED`属性设置为数字列。 仅在 `MySQL` 中使用。
+- `charset: string` - 定义列字符集。 并非所有数据库类型都支持。
+- `collation: string` - 定义列排序规则。
+- `enum: string[]|AnyEnum` - 在`enum`列类型中使用，以指定允许的枚举值列表。 你也可以指定数组或指定枚举类。
+- `asExpression: string` - 生成的列表达式。 仅在[MySQL (opens new window)](https://dev.mysql.com/doc/refman/5.7/en/create-table-generated-columns.html)中使用。
+- `generatedType: "VIRTUAL"|"STORED"` - 生成的列类型。 仅在[MySQL (opens new window)](https://dev.mysql.com/doc/refman/5.7/en/create-table-generated-columns.html)中使用。
+- `hstoreType: "object"|"string"` -返回`HSTORE`列类型。 以字符串或对象的形式返回值。 仅在`Postgres`中使用。
+- `array: boolean` - 用于可以是数组的 `postgres` 列类型（例如 `int []`）
+- `transformer: { from(value: DatabaseType): EntityType, to(value: EntityType): DatabaseType }` - 用于将任意类型`EntityType`的属性编组为数据库支持的类型`DatabaseType`。
+
+注意：大多数列选项都是特定于 `RDBMS` 的，并且在`MongoDB`中不可用。
+
+#### 实体继承
+
+你可以使用实体继承减少代码中的重复。
+
+例如，你有`Photo`, `Question`, `Post` 三个实体:
+
+```typescript
+@Entity()
+export class Photo {
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column()
+    title: string;
+
+    @Column()
+    description: string;
+
+    @Column()
+    size: string;
+}
+
+@Entity()
+export class Question {
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column()
+    title: string;
+
+    @Column()
+    description: string;
+
+    @Column()
+    answersCount: number;
+}
+
+@Entity()
+export class Post {
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column()
+    title: string;
+
+    @Column()
+    description: string;
+
+    @Column()
+    viewCount: number;
+}
+```
+
+正如你所看到的，所有这些实体都有共同的列：`id`，`title`，`description`。 为了减少重复并产生更好的抽象，我们可以为它们创建一个名为`Content`的基类：
+
+```typescript
+export abstract class Content {
+    @PrimaryGeneratedColumn()
+    id: number;
+
+    @Column()
+    title: string;
+
+    @Column()
+    description: string;
+}
+@Entity()
+export class Photo extends Content {
+    @Column()
+    size: string;
+}
+
+@Entity()
+export class Question extends Content {
+    @Column()
+    answersCount: number;
+}
+
+@Entity()
+export class Post extends Content {
+    @Column()
+    viewCount: number;
+}
+```
+
+来自父实体的所有列（`relations`，`embeds` 等）（父级也可以扩展其他实体）将在最终实体中继承和创建。
+
+#### 嵌入式实体
+
+除了继承来减少重复，也可以使用`嵌入embedded columns`。
+
+同样是创建基类，但是不使用继承，而是这样：
+
+```typescript
+import {Entity, Column} from "typeorm";
+
+export class Name {
+    
+    @Column()
+    first: string;
+    
+    @Column()
+    last: string;
+    
+}
+
+@Entity()
+export class User {
+    
+    @PrimaryGeneratedColumn()
+    id: string;
+    
+    // 这样嵌入
+    @Column(type => Name)
+    name: Name;
+    
+    @Column()
+    isActive: boolean;
+    
+}
+```
+
+生成的表为：
+
+```typescript
++-------------+--------------+----------------------------+
+|                          user                           |
++-------------+--------------+----------------------------+
+| id          | int(11)      | PRIMARY KEY AUTO_INCREMENT |
+| nameFirst   | varchar(255) |                            |
+| nameLast    | varchar(255) |                            |
+| isActive    | boolean      |                            |
++-------------+--------------+----------------------------+
+```
+
+
+
+### 索引
+
+#### 单列索引
+
+你可以在要创建索引的列上使用`@Index`为特定列创建数据库索引。 也可以为实体的任何列创建索引。 例如：
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, Index } from "typeorm";
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Index()
+  @Column()
+  firstName: string;
+
+  @Column()
+  @Index()
+  lastName: string;
+}
+```
+
+还可以指定索引名称：
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, Index } from "typeorm";
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Index("name1-idx")
+  @Column()
+  firstName: string;
+
+  @Column()
+  @Index("name2-idx")
+  lastName: string;
+}
+```
+
+#### 唯一索引
+
+要创建唯一索引，需要在索引选项中指定`{unique：true}`：
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, Index } from "typeorm";
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Index({ unique: true })
+  @Column()
+  firstName: string;
+
+  @Column()
+  @Index({ unique: true })
+  lastName: string;
+}
+```
+
+#### 联合索引
+
+要创建具有多个列的索引，需要将`@Index`放在实体本身上，并指定应包含在索引中的所有列属性名称。 例如：
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, Index } from "typeorm";
+
+@Entity()
+@Index(["firstName", "lastName"])
+@Index(["firstName", "middleName", "lastName"], { unique: true })
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  firstName: string;
+
+  @Column()
+  middleName: string;
+
+  @Column()
+  lastName: string;
+}
+```
+
+#### 空间索引
+
+`MySQL` 和 `PostgreSQL`（当 `PostGIS` 可用时）都支持空间索引。
+
+要在 MySQL 中的列上创建空间索引，请在使用空间类型的列（`geometry`，`point`，`linestring`，`polygon`，`multipoint`，`multilinestring`，`multipolygon`，`geometrycollection`）上添加`index`，其中`spatial：true`）：
+
+```typescript
+@Entity()
+export class Thing {
+  @Column("point")
+  @Index({ spatial: true })
+  point: string;
+}
+```
+
+要在 `PostgreSQL` 中的列上创建空间索引，请在使用空间类型（`geometry`，`geography`）的列上添加带有`spatial：true`的`Index`：
+
+```typescript
+@Entity()
+export class Thing {
+  @Column("geometry", {
+    spatialFeatureType: "Point",
+    srid: 4326
+  })
+  @Index({ spatial: true })
+  point: Geometry;
+}
+```
+
+### 关系
+
+关系是指两个或多个表之间的联系。关系基于每个表中的常规字段，通常包含主键和外键。
+
+关系有三种：
+
+| 名称          | 说明                                                         |
+| :------------ | :----------------------------------------------------------- |
+| 一对一        | 主表中的每一行在外部表中有且仅有一个对应行。使用`@OneToOne()`装饰器来定义这种类型的关系 |
+| 一对多/多对一 | 主表中的每一行在外部表中有一个或多的对应行。使用`@OneToMany()`和`@ManyToOne()`装饰器来定义这种类型的关系 |
+| 多对多        | 主表中的每一行在外部表中有多个对应行，外部表中的每个记录在主表中也有多个行。使用`@ManyToMany()`装饰器来定义这种类型的关系 |
+
+
+
+#### 关系选项
+
+你可以为关系指定几个选项：
+
+- `eager: boolean` - 如果设置为 `true`，则在此实体上使用`find *` 或`QueryBuilder`时，将始终使用主实体加载关系（当为`true`时，查询时不用指定关系表，将自动关联查询加载）， 只有在使用`find *`方法时才有效，并且只能用于关系的一方，在关系的两边使用`eager：true`是不允许的。 。
+- `cascade: boolean` - 级联，如果设置为 `true`，则将插入相关对象并在数据库中更新，修改一方关系的另一方也会更新。
+- `onDelete: "RESTRICT"|"CASCADE"|"SET NULL"` - 指定删除引用对象时外键的行为方式。
+- `primary: boolean` - 指示此关系的列是否为主列。
+- `nullable: boolean` -指示此关系的列是否可为空。 默认情况下是可空。
+
+
+
+#### @JoinColumn装饰器
+
+`@JoinColumn`不仅定义了关系的哪一侧包含带有外键的连接列，还允许自定义连接列名和引用的列名。
+
+当我们设置`@JoinColumn`时，它会自动在数据库中创建一个名为`propertyName + referencedColumnName`的列。 例如：
+
+```typescript
+@ManyToOne(type => Category)
+@JoinColumn() // 这个装饰器对于@ManyToOne是可选的，但@OneToOne是必需的
+category: Category;
+```
+
+此代码将在数据库中创建`categoryId`列。 如果要在数据库中更改此名称，可以指定自定义连接列名称：
+
+```typescript
+@ManyToOne(type => Category)
+@JoinColumn({ name: "cat_id" })
+category: Category;
+```
+
+`Join列`始终是对其他一些列的引用（使用外键）。 默认情况下，关系始终引用相关实体的主列。 如果要与相关实体的其他列创建关系 - 你也可以在`@JoinColumn`中指定它们：
+
+```typescript
+@ManyToOne(type => Category)
+@JoinColumn({ referencedColumnName: "name" })
+category: Category;
+```
+
+该关系现在引用`Category`实体的`name`，而不是`id`。 该关系的列名将变为`categoryName`。
+
+#### @JoinTable装饰器
+
+`@ JoinTable`用于“多对多”关系。 联结表是由 `TypeORM` 自动创建的一个特殊的单独表，其中的列引用相关实体。 你可以使用`@JoinColumn`更改联结表及其引用列中的列名，你还可以更改生成的联结表的名称。
+
+```typescript
+@ManyToMany(type => Category)
+@JoinTable({
+    name: "question_categories" // 此关系的联结表的表名
+    joinColumn: {
+        name: "question",
+        referencedColumnName: "id"
+    },
+    inverseJoinColumn: {
+        name: "category",
+        referencedColumnName: "id"
+    }
+})
+categories: Category[];
+```
+
+如果目标表具有复合主键， 则必须将一组属性发送到`@JoinTable`。
+
+#### 一对一
+
+我们以`User`和`Profile`实体为例。
+
+用户只能拥有一个配置文件，并且一个配置文件仅由一个用户拥有。
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column } from "typeorm";
+
+@Entity()
+export class Profile {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  gender: string;
+
+  @Column()
+  photo: string;
+}
+```
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn } from "typeorm";
+import { Profile } from "./Profile";
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+
+  // User 的 profile 属性 对应一个 Profile 实体
+  @OneToOne(() => Profile)
+  // @JoinColumn 表明这是主表，会在此表生成关联外键
+  @JoinColumn()
+  profile: Profile;
+}
+```
+
+这里我们将`@OneToOne`添加到`profile`并将目标关系类型指定为`Profile`。 我们还添加了`@JoinColumn`，这是必选项并且只能在关系的一侧设置。 你设置`@JoinColumn`在哪个表，哪一方的表将包含一个`"relation id"`和目标实体表的外键。
+
+此示例将生成以下表：
+
+```bash
++-------------+--------------+----------------------------+
+|                        profile                          |
++-------------+--------------+----------------------------+
+| id          | int(11)      | PRIMARY KEY AUTO_INCREMENT |
+| gender      | varchar(255) |                            |
+| photo       | varchar(255) |                            |
++-------------+--------------+----------------------------+
+
++-------------+--------------+----------------------------+
+|                          user                           |
++-------------+--------------+----------------------------+
+| id          | int(11)      | PRIMARY KEY AUTO_INCREMENT |
+| name        | varchar(255) |                            |
+| profileId   | int(11)      | FOREIGN KEY                |
++-------------+--------------+----------------------------+
+```
+
+同样，`@JoinColumn`必须仅设置在关系的一侧且必须在数据库表中具有外键的一侧。
+
+该例子展示如何保存这样的关系：
+
+```typescript
+const profile = new Profile();
+profile.gender = "male";
+profile.photo = "me.jpg";
+// 拿到manager后使用save保存
+await connection.manager.save(profile);
+
+const user = new User();
+user.name = "Joe Smith";
+user.profile = profile;
+// 两个表分别保存
+await connection.manager.save(user);
+```
+
+启用级联后（即主表对应属性的配置中设置了` cascade : true`，比如`@OneToOne(() => Profile, profile => profile.user, { cascade: true })`），只需一次`save`调用即可保存此关系。
+
+要拿到嵌套`profile`的`user`，必须在`FindOptions`中指定关系：
+
+```typescript
+const userRepository = connection.getRepository(User);
+// 指定需要查询关系profile
+const users = await userRepository.find({ relations: ["profile"] });
+```
+
+或者使用`QueryBuilder`:
+
+```typescript
+const users = await connection
+  .getRepository(User)
+  .createQueryBuilder("user")
+  .leftJoinAndSelect("user.profile", "profile")
+  .getMany();
+```
+
+通过在关系上启用预先加载，你不必指定关系或手动加入，它将始终自动加载。
+
+关系可以是单向的和双向的。 单向是仅在一侧与关系装饰器的关系。 双向是与关系两侧的装饰者的关系。
+
+我们刚刚创建了一个单向关系。 让我们将它改为双向：
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne } from "typeorm";
+import { User } from "./User";
+
+@Entity()
+export class Profile {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  gender: string;
+
+  @Column()
+  photo: string;
+
+  @OneToOne(() => User, user => user.profile) // 将另一面指定为第二个参数，指定反向关系的字段名
+  user: User;
+}
+```
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, OneToOne, JoinColumn } from "typeorm";
+import { Profile } from "./Profile";
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+
+  @OneToOne(() => Profile, profile => profile.user) // 指定另一面作为第二个参数
+  @JoinColumn()
+  profile: Profile;
+}
+```
+
+我们只是创建了双向关系。 注意，反向关系没有`@JoinColumn`。 `@JoinColumn`必须只在关系的一侧且拥有外键的表上。
+
+双向关系允许你使用`QueryBuilder`从双方加入关系：
+
+```typescript
+const profiles = await connection
+  .getRepository(Profile)
+  .createQueryBuilder("profile")
+  .leftJoinAndSelect("profile.user", "user")
+  .getMany();
+```
+
+#### 多对一/一对多
+
+以`User` 和 `Photo` 实体为例。 `User` 可以拥有多张 `photos`，但每张 `photo` 仅由一位 `user` 拥有。
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from "typeorm";
+import { User } from "./User";
+
+@Entity()
+export class Photo {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  url: string;
+
+  // 在多的一方使用 ManyToOne，并且指定反向关系字段名
+  @ManyToOne(() => User, user => user.photos)
+  user: User;
+}
+```
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from "typeorm";
+import { Photo } from "./Photo";
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+  // 在一的一方使用 OneToMany，自己反向作为photo的user
+  @OneToMany(() => Photo, photo => photo.user)
+  photos: Photo[];
+}
+```
+
+这里我们将`@OneToMany`添加到`photos`属性中，并将目标关系类型指定为`Photo`。 你可以在`@ManyToOne` / `@OneToMany`关系中省略`@JoinColumn`（因为一对多外键一定在多的一方），除非你需要自定义关联列在数据库中的名称。 `@ManyToOne`可以单独使用，但`@OneToMany`必须搭配`@ManyToOne`使用。 如果你想使用`@OneToMany`，则需要`@ManyToOne`。 在你设置`@ManyToOne`的地方，相关实体将有`关联id`和外键。
+
+此示例将生成以下表：
+
+```bash
++-------------+--------------+----------------------------+
+|                         photo                           |
++-------------+--------------+----------------------------+
+| id          | int(11)      | PRIMARY KEY AUTO_INCREMENT |
+| url         | varchar(255) |                            |
+| userId      | int(11)      |                            |
++-------------+--------------+----------------------------+
+
++-------------+--------------+----------------------------+
+|                          user                           |
++-------------+--------------+----------------------------+
+| id          | int(11)      | PRIMARY KEY AUTO_INCREMENT |
+| name        | varchar(255) |                            |
++-------------+--------------+----------------------------+
+```
+
+如何保存这种关系：
+
+```typescript
+const photo1 = new Photo();
+photo1.url = "me.jpg";
+await connection.manager.save(photo1);
+
+const photo2 = new Photo();
+photo2.url = "me-and-bears.jpg";
+await connection.manager.save(photo2);
+
+const user = new User();
+user.name = "John";
+user.photos = [photo1, photo2];
+await connection.manager.save(user);
+```
+
+或者你可以选择：
+
+```typescript
+const user = new User();
+user.name = "Leo";
+await connection.manager.save(user);
+
+const photo1 = new Photo();
+photo1.url = "me.jpg";
+photo1.user = user;
+await connection.manager.save(photo1);
+
+const photo2 = new Photo();
+photo2.url = "me-and-bears.jpg";
+photo2.user = user;
+await connection.manager.save(photo2);
+```
+
+启用级联后，只需一次`save`调用即可保存此关系。
+
+要在内部加载带有 `photos` 的 `user`，必须在`FindOptions`中指定关系：
+
+```typescript
+const userRepository = connection.getRepository(User);
+const users = await userRepository.find({ relations: ["photos"] });
+
+// 或者带有 user 的 photos
+
+const photoRepository = connection.getRepository(Photo);
+const photos = await photoRepository.find({ relations: ["user"] });
+```
+
+或者使用`QueryBuilder`:
+
+```typescript
+const users = await connection
+  .getRepository(User)
+  .createQueryBuilder("user")
+  .leftJoinAndSelect("user.photos", "photo")
+  .getMany();
+
+// or from inverse side
+
+const photos = await connection
+  .getRepository(Photo)
+  .createQueryBuilder("photo")
+  .leftJoinAndSelect("photo.user", "user")
+  .getMany();
+```
+
+通过在关系上启用预先加载，你不必指定关系或手动加入,它将始终自动加载。
+
+#### 多对多
+
+以`Question` 和 `Category` 实体为例。 `Question` 可以有多个 `categories`, 每个 `category` 可以有多个 `questions`。
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column } from "typeorm";
+
+@Entity()
+export class Category {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+}
+```
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, JoinTable } from "typeorm";
+import { Category } from "./Category";
+
+@Entity()
+export class Question {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  title: string;
+
+  @Column()
+  text: string;
+
+  // 使用 ManyToMany 和 JoinTable
+  @ManyToMany(() => Category)
+  @JoinTable()
+  categories: Category[];
+}
+```
+
+`@JoinTable()`是`@ManyToMany`关系所必需的。 你必须把`@JoinTable`放在关系的一边。
+
+此示例将生成以下表：
+
+```bash
++-------------+--------------+----------------------------+
+|                        category                         |
++-------------+--------------+----------------------------+
+| id          | int(11)      | PRIMARY KEY AUTO_INCREMENT |
+| name        | varchar(255) |                            |
++-------------+--------------+----------------------------+
+
++-------------+--------------+----------------------------+
+|                        question                         |
++-------------+--------------+----------------------------+
+| id          | int(11)      | PRIMARY KEY AUTO_INCREMENT |
+| title       | varchar(255) |                            |
++-------------+--------------+----------------------------+
+
++-------------+--------------+----------------------------+
+|              question_categories_category               |
++-------------+--------------+----------------------------+
+| questionId  | int(11)      | PRIMARY KEY FOREIGN KEY    |
+| categoryId  | int(11)      | PRIMARY KEY FOREIGN KEY    |
++-------------+--------------+----------------------------+
+```
+
+如何保存这种关系：
+
+```typescript
+const category1 = new Category();
+category1.name = "animals";
+await connection.manager.save(category1);
+
+const category2 = new Category();
+category2.name = "zoo";
+await connection.manager.save(category2);
+
+const question = new Question();
+question.categories = [category1, category2];
+await connection.manager.save(question);
+```
+
+启用级联后，只需一次`save`调用即可保存此关系。
+
+要在 `categories` 里面加载 `question`，你必须在`FindOptions`中指定关系：
+
+```typescript
+const questionRepository = connection.getRepository(Question);
+const questions = await questionRepository.find({ relations: ["categories"] });
+```
+
+或者使用`QueryBuilder`
+
+```typescript
+const questions = await connection
+  .getRepository(Question)
+  .createQueryBuilder("question")
+  .leftJoinAndSelect("question.categories", "category")
+  .getMany();
+```
+
+通过在关系上启用预先加载，你不必指定关系或手动加入，它将始终自动加载。
+
+关系可以是单向的和双向的。 单向是仅在一侧与关系装饰器的关系。 双向是与关系两侧的装饰者的关系。
+
+我们刚刚创建了一个单向关系。 让我们改为双向：
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, ManyToMany } from "typeorm";
+import { Question } from "./Question";
+
+@Entity()
+export class Category {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+
+  @ManyToMany(() => Question, question => question.categories)
+  questions: Question[];
+}
+```
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, ManyToMany, JoinTable } from "typeorm";
+import { Category } from "./Category";
+
+@Entity()
+export class Question {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  title: string;
+
+  @Column()
+  text: string;
+
+  @ManyToMany(() => Category, category => category.questions)
+  @JoinTable()
+  categories: Category[];
+}
+```
+
+我们只是创建了双向关系。 注意，反向关系没有`@JoinTable`。 `@JoinTable`必须只在关系的一边。
+
+双向关系允许您使用`QueryBuilder`从双方加入关系：
+
+```typescript
+const categoriesWithQuestions = await connection
+  .getRepository(Category)
+  .createQueryBuilder("category")
+  .leftJoinAndSelect("category.questions", "question")
+  .getMany();
+```
+
+### Entity Manager
+
+使用`EntityManager`，你可以管理任何实体。 `EntityManager` 就像放一个实体存储库的集合的地方。
+
+你可以通过`getManager（）`或`Connection`访问实体管理器。
+
+```typescript
+import { getManager } from "typeorm";
+import { User } from "./entity/User";
+
+const entityManager = getManager(); // 你也可以通过 getConnection().manager 获取
+const user = await entityManager.findOne(User, 1);
+user.name = "Umed";
+await entityManager.save(user);
+```
+
+#### API
+
+- `connection` - 使用`EntityManager`连接。
+
+```typescript
+const connection = manager.connection;
+```
+
+- `queryRunner` - `EntityManager`使用的查询运行器。仅在 EntityManager 的事务实例中使用。
+
+```typescript
+const queryRunner = manager.queryRunner;
+```
+
+- `transaction` - 提供在单个数据库事务中执行多个数据库请求的事务。
+
+```typescript
+await manager.transaction(async manager => {
+  // NOTE: you must perform all database operations using the given manager instance
+  // it's a special instance of EntityManager working with this transaction
+  // and don't forget to await things here
+  // 注意：你必须使用给定的管理器实例执行所有数据库操作，
+  // 它是一个使用此事务的EntityManager的特殊实例。
+  // 在这里处理一些操作
+});
+```
+
+- `query` - 执行原始 `SQL` 查询。
+
+```typescript
+const rawData = await manager.query(`SELECT * FROM USERS`);
+```
+
+- `createQueryBuilder` - 创建用于构建 `SQL` 查询的 `query builder`。 
+
+```typescript
+const users = await manager
+  .createQueryBuilder()
+  .select()
+  .from(User, "user")
+  .where("user.name = :name", { name: "John" })
+  .getMany();
+```
+
+- `hasId` - 检查给定实体是否已定义主列属性。
+
+```typescript
+if (manager.hasId(user)) {
+  // ... 做一些需要的操作
+}
+```
+
+- `getId` - 获取给定实体的主列属性值。 如果实体具有复合主键，则返回的值将是具有主列的名称和值的对象。
+
+```typescript
+const userId = manager.getId(user); // userId === 1
+```
+
+- `create` - 创建`User`的新实例。 接受具有用户属性的对象文字，该用户属性将写入新创建的用户对象。（可选）
+
+```typescript
+const user = manager.create(User); // same as const user = new User();
+const user = manager.create(User, {
+  id: 1,
+  firstName: "Timber",
+  lastName: "Saw"
+}); // 和 const user = new User(); user.firstName = "Timber"; user.lastName = "Saw"; 一样
+```
+
+- `merge` - 将多个实体合并为一个实体。
+
+```typescript
+const user = new User();
+manager.merge(User, user, { firstName: "Timber" }, { lastName: "Saw" }); // 和user.firstName = "Timber"; user.lastName = "Saw";一样
+```
+
+- `preload` - 从给定的普通 `javascript` 对象创建一个新实体。 如果实体已存在于数据库中，则它将加载它（以及与之相关的所有内容），将所有值替换为给定对象中的新值，并返回新实体。 新的实体实际上是从与新对象代替所有属性的数据库实体加载。
+
+```typescript
+const partialUser = {
+  id: 1,
+  firstName: "Rizzrak",
+  profile: {
+    id: 1
+  }
+};
+const user = await manager.preload(User, partialUser);
+// user将包含partialUser中具有partialUser属性值的所有缺失数据：
+// { id: 1, firstName: "Rizzrak", lastName: "Saw", profile: { id: 1, ... } }
+```
+
+- `save` - 保存给定实体或实体数组。 如果实体已存在于数据库中，则会更新。 如果该实体尚未存在于数据库中，则将其插入。 它将所有给定实体保存在单个事务中（在实体管理器而不是事务性的情况下）。 还支持部分更新，因为跳过了所有未定义的属性。 为了使值为`NULL`，你必须手动将该属性设置为等于`null`。
+
+```typescript
+await manager.save(user);
+await manager.save([category1, category2, category3]);
+```
+
+- `remove` - 删除给定的实体或实体数组。 它删除单个事务中的所有给定实体（在实体的情况下，管理器不是事务性的）。
+
+```typescript
+await manager.remove(user);
+await manager.remove([category1, category2, category3]);
+```
+
+- `insert` - 插入新实体或实体数组。
+
+```typescript
+await manager.insert(User, {
+  firstName: "Timber",
+  lastName: "Timber"
+});
+
+await manager.insert(User, [
+  {
+    firstName: "Foo",
+    lastName: "Bar"
+  },
+  {
+    firstName: "Rizz",
+    lastName: "Rak"
+  }
+]);
+```
+
+- `update` - 通过给定的更新选项或实体 `ID` 部分更新实体。
+
+```typescript
+await manager.update(User, { firstName: "Timber" }, { firstName: "Rizzrak" });
+// 执行 UPDATE user SET firstName = Rizzrak WHERE firstName = Timber
+
+await manager.update(User, 1, { firstName: "Rizzrak" });
+// 执行 UPDATE user SET firstName = Rizzrak WHERE id = 1
+```
+
+- `delete` - 根据实体 `id` 或 `ids` 或其他给定条件删除实体：
+
+```typescript
+await manager.delete(User, 1);
+await manager.delete(User, [1, 2, 3]);
+await manager.delete(User, { firstName: "Timber" });
+```
+
+- `count` - 符合指定条件的实体数量。对分页很有用。
+
+```typescript
+const count = await manager.count(User, { firstName: "Timber" });
+```
+
+- `increment` - 增加符合条件的实体某些列值。
+
+```typescript
+await manager.increment(User, { firstName: "Timber" }, "age", 3);
+```
+
+- `decrement` - 减少符合条件的实体某些列值。
+
+```typescript
+await manager.decrement(User, { firstName: "Timber" }, "age", 3);
+```
+
+- `find` - 查找指定条件的实体。
+
+```typescript
+const timbers = await manager.find(User, { firstName: "Timber" });
+```
+
+- `findAndCount` - 查找指定条件的实体。 还会计算与给定条件匹配的所有实体数量，但忽略分页设置（`from`和`take` 选项）。
+
+```typescript
+const [timbers, timbersCount] = await manager.findAndCount(User, { firstName: "Timber" });
+```
+
+- `findByIds` - 按 ID 查找多个实体。
+
+```typescript
+const users = await manager.findByIds(User, [1, 2, 3]);
+```
+
+- `findOne` - 查找匹配某些 ID 或查找选项的第一个实体。
+
+```typescript
+const user = await manager.findOne(User, 1);
+const timber = await manager.findOne(User, { firstName: "Timber" });
+```
+
+- `findOneOrFail` - 查找匹配某些 ID 或查找选项的第一个实体。 如果没有匹配，则 Rejects 一个 promise。
+
+```typescript
+const user = await manager.findOneOrFail(User, 1);
+const timber = await manager.findOneOrFail(User, { firstName: "Timber" });
+```
+
+- `clear` - 清除给定表中的所有数据(`truncates/drops`)。
+
+```typescript
+await manager.clear(User);
+```
+
+- `getRepository` - 获取`Repository`以对特定实体执行操作。 
+
+```typescript
+const userRepository = manager.getRepository(User);
+```
+
+- `getTreeRepository` - 获取`TreeRepository`以对特定实体执行操作。
+
+```typescript
+const categoryRepository = manager.getTreeRepository(Category);
+```
+
+- `getMongoRepository` - 获取`MongoRepository`以对特定实体执行操作。
+
+```typescript
+const userRepository = manager.getMongoRepository(User);
+```
+
+- `getCustomRepository` - 获取自定义实体库。 
+
+```typescript
+const myUserRepository = manager.getCustomRepository(UserRepository);
+```
+
+- `release` - 释放实体管理器的查询运行器。仅在手动创建和管理查询运行器时使用。
+
+```typescript
+await manager.release();
+```
+
+### Repository
+
+`Repository`就像`EntityManager`一样，但其操作仅限于具体实体。
+
+你可以通过`getRepository（Entity）`，`Connection.getRepository`或`EntityManager.getRepository`访问存储库。
+
+例如：
+
+```typescript
+import { getRepository } from "typeorm";
+import { User } from "./entity/User";
+
+const userRepository = getRepository(User); // 你也可以通过getConnection().getRepository()或getManager().getRepository() 获取
+const user = await userRepository.findOne(1);
+user.name = "Umed";
+await userRepository.save(user);
+```
+
+有三种类型的存储库：
+
+- `Repository` - 任何实体的常规存储库。
+- `TreeRepository` - 用于树实体的`Repository`的扩展存储库（比如标有`@ Tree`装饰器的实体）。有特殊的方法来处理树结构。
+- `MongoRepository` - 具有特殊功能的存储库，仅用于 `MongoDB`。
+
+#### 在Nest中获取Repository
+
+首先在全局插入实体，让`TypeORM`知道它的存在：
+
+```typescript
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Photo } from './photo/photo.entity';
+
+@Module({
+  imports: [
+    TypeOrmModule.forRoot({
+      type: 'mysql',
+      host: 'localhost',
+      port: 3306,
+      username: 'root',
+      password: 'root',
+      database: 'test',
+      // 在全局的entities中导入
+      entities: [User],
+      synchronize: true,
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+然后在需要的模块中使用`forFeature`：
+
+```typescript
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { UsersService } from './users.service';
+import { UsersController } from './users.controller';
+import { User } from './user.entity';
+
+@Module({
+  // 在当前模块中注册User存储库
+  imports: [TypeOrmModule.forFeature([User])],
+  providers: [UsersService],
+  controllers: [UsersController],
+})
+export class UsersModule {}
+```
+
+ 此模块使用 `forFeature()` 方法定义在当前范围中注册哪些存储库。这样，我们就可以使用 `@InjectRepository()`装饰器将 `UsersRepository` 注入到 `UsersService` 中 ：
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from './user.entity';
+
+@Injectable()
+export class UsersService {
+  constructor(
+    // 注入User
+    @InjectRepository(User)
+    private usersRepository: Repository<User>
+  ) {}
+
+  findAll(): Promise<User[]> {
+    // 此时就可以使用userRespository
+    return this.usersRepository.find();
+  }
+
+  findOne(id: string): Promise<User> {
+    return this.usersRepository.findOne(id);
+  }
+
+  async remove(id: string): Promise<void> {
+    await this.usersRepository.delete(id);
+  }
+}
+```
+
+
+
+#### API
+
+- `manager` - 存储库使用的`EntityManager`。
+
+```typescript
+const manager = repository.manager;
+```
+
+- `metadata` - 存储库管理的实体的`EntityMetadata`。 
+
+```typescript
+const metadata = repository.metadata;
+```
+
+- `queryRunner` - `EntityManager`使用的查询器。仅在 `EntityManager` 的事务实例中使用。
+
+```typescript
+const queryRunner = repository.queryRunner;
+```
+
+- `target` - 此存储库管理的目标实体类。仅在 `EntityManager `的事务实例中使用。
+
+```typescript
+const target = repository.target;
+```
+
+- `createQueryBuilder` - 创建用于构建 `SQL` 查询的查询构建器。 
+
+```typescript
+const users = await repository
+  .createQueryBuilder("user")
+  .where("user.name = :name", { name: "John" })
+  .getMany();
+```
+
+- `hasId` - 检查是否定义了给定实体的主列属性。
+
+```typescript
+if (repository.hasId(user)) {
+  // ... do something
+}
+```
+
+- `getId` - 获取给定实体的主列属性值。复合主键返回的值将是一个具有主列名称和值的对象。
+
+```typescript
+const userId = repository.getId(user); // userId === 1
+```
+
+- `create` - 创建`User`的新实例。 接受具有用户属性的对象文字，该用户属性将写入新创建的用户对象（可选）。
+
+```typescript
+const user = repository.create(); // 和 const user = new User();一样
+const user = repository.create({
+  id: 1,
+  firstName: "Timber",
+  lastName: "Saw"
+}); // 和const user = new User(); user.firstName = "Timber"; user.lastName = "Saw";一样
+```
+
+- `merge` - 将多个实体合并为一个实体。
+
+```typescript
+const user = new User();
+repository.merge(user, { firstName: "Timber" }, { lastName: "Saw" }); // 和 user.firstName = "Timber"; user.lastName = "Saw";一样
+```
+
+- `preload` - 从给定的普通 `javascript` 对象创建一个新实体。 如果实体已存在于数据库中，则它将加载它（以及与之相关的所有内容），并将所有值替换为给定对象中的新值，并返回新实体。 新实体实际上是从数据库加载的所有属性都替换为新对象的实体。
+
+```typescript
+const partialUser = {
+  id: 1,
+  firstName: "Rizzrak",
+  profile: {
+    id: 1
+  }
+};
+const user = await repository.preload(partialUser);
+// user将包含partialUser中具有partialUser属性值的所有缺失数据：
+// { id: 1, firstName: "Rizzrak", lastName: "Saw", profile: { id: 1, ... } }
+```
+
+- `save` - 保存给定实体或实体数组。   如果该实体已存在于数据库中，则会更新该实体。   如果数据库中不存在该实体，则会插入该实体。   它将所有给定实体保存在单个事务中（在实体的情况下，管理器不是事务性的）。   因为跳过了所有未定义的属性，还支持部分更新。
+
+```typescript
+await repository.save(user);
+await repository.save([category1, category2, category3]);
+```
+
+- `remove` - 删除给定的实体或实体数组。
+- 它将删除单个事务中的所有给定实体（在实体的情况下，管理器不是事务性的）。
+
+```typescript
+await repository.remove(user);
+await repository.remove([category1, category2, category3]);
+```
+
+- `insert` - 插入新实体或实体数组。
+
+```typescript
+await repository.insert({
+  firstName: "Timber",
+  lastName: "Timber"
+});
+
+await manager.insert(User, [
+  {
+    firstName: "Foo",
+    lastName: "Bar"
+  },
+  {
+    firstName: "Rizz",
+    lastName: "Rak"
+  }
+]);
+```
+
+- `update` - 通过给定的更新选项或实体 `ID` 部分更新实体。
+
+```typescript
+await repository.update({ firstName: "Timber" }, { firstName: "Rizzrak" });
+// 执行 UPDATE user SET firstName = Rizzrak WHERE firstName = Timber
+
+await repository.update(1, { firstName: "Rizzrak" });
+// 执行 UPDATE user SET firstName = Rizzrak WHERE id = 1
+```
+
+- `delete` -根据实体 `id`, `ids` 或给定的条件删除实体：
+
+```typescript
+await repository.delete(1);
+await repository.delete([1, 2, 3]);
+await repository.delete({ firstName: "Timber" });
+```
+
+- `count` - 符合指定条件的实体数量。对分页很有用。
+
+```typescript
+const count = await repository.count({ firstName: "Timber" });
+```
+
+- `increment` - 增加符合条件的实体某些列值。
+
+```typescript
+await manager.increment(User, { firstName: "Timber" }, "age", 3);
+```
+
+- `decrement` - 减少符合条件的实体某些列值。
+
+```typescript
+await manager.decrement(User, { firstName: "Timber" }, "age", 3);
+```
+
+- `find` - 查找指定条件的实体。
+
+```typescript
+const timbers = await repository.find({ firstName: "Timber" });
+```
+
+- `findAndCount` - 查找指定条件的实体。还会计算与给定条件匹配的所有实体数量， 但是忽略分页设置 (`skip` 和 `take` 选项)。
+
+```typescript
+const [timbers, timbersCount] = await repository.findAndCount({ firstName: "Timber" });
+```
+
+- `findByIds` - 按 `ID` 查找多个实体。
+
+```typescript
+const users = await repository.findByIds([1, 2, 3]);
+```
+
+- `findOne` - 查找匹配某些 `ID` 或查找选项的第一个实体。
+
+```typescript
+const user = await repository.findOne(1);
+const timber = await repository.findOne({ firstName: "Timber" });
+```
+
+- `findOneOrFail` - - `findOneOrFail` - 查找匹配某些 `ID` 或查找选项的第一个实体。 如果没有匹配，则 `Rejects` 一个 `promise`。
+
+```typescript
+const user = await repository.findOneOrFail(1);
+const timber = await repository.findOneOrFail({ firstName: "Timber" });
+```
+
+- `query` - 执行原始 `SQL`查询。
+
+```typescript
+const rawData = await repository.query(`SELECT * FROM USERS`);
+```
+
+- `clear` - 清除给定表中的所有数据(`truncates/drops`)。
+
+```typescript
+await repository.clear();
+```
+
+#### 其他选项
+
+`SaveOptions`选项可以传递`save`, `insert` 和 `update`参数。
+
+- `data` - 使用`persist`方法传递的其他数据。这个数据可以在订阅者中使用。
+- `listeners`: `boolean` - 指示是否为此操作调用监听者和订阅者。默认启用，可以通过在save/remove选项中设置`{listeners：false}`来禁用。
+- `transaction`: `boolean` - 默认情况下，启用事务并将持久性操作中的所有查询都包裹在事务中。可以通过在持久性选项中设置`{transaction：false}`来禁用此行为。
+- `chunk`: `number` - 中断将执行保存到多个块组中的操作。 例如，如果要保存`100.000`个对象但是在保存它们时遇到问题，可以将它们分成`10`组`10.000`个对象（通过设置`{chunk：10000}`）并分别保存每个组。 当遇到基础驱动程序参数数量限制问题时，需要此选项来执行非常大的插入。
+- `reload`: `boolean` - 用于确定是否应在持久性操作期间重新加载正在保留的实体的标志。 它仅适用于不支持`RETURNING/OUTPUT`语句的数据库。 默认情况下启用。
+
+示例:
+
+```typescript
+// users包含用user实体数组
+userRepository.insert(users, {chunk: users.length / 1000});
+```
+
+`RemoveOptions`可以传递`remove`和`delete`参数。
+
+- `data` - 使用`remove`方法传递的其他数据。 这个数据可以在订阅者中使用。
+- `listener`: `boolean` - 指示是否为此操作调用监听者和订阅者。默认启用，可以通过在`save/remove`选项中设置`{listeners：false}`来禁用。
+- `transaction`: `boolean` - 默认情况下，启用事务并将持久性操作中的所有查询都包裹在事务中。可以通过在持久性选项中设置`{transaction：false}`来禁用此行为。
+- `chunk`: `number` - 中断将执行保存到多个块组中的操作。 例如，如果要保存`100.000`个对象但是在保存它们时遇到问题，可以将它们分成`10`组`10.000`个对象（通过设置`{chunk：10000}`）并分别保存每个组。 当遇到基础驱动程序参数数量限制问题时，需要此选项来执行非常大的插入。
+
+示例:
+
+```typescript
+// users包含用user实体数组
+userRepository.remove(users, {chunk: entities.length / 1000});
+```
+
+### 事务
+
+事务是使用`Connection`或`EntityManager`创建的。 例如:
+
+```typescript
+import { getConnection } from "typeorm";
+
+await getConnection().transaction(transactionalEntityManager => {});
+```
+
+```typescript
+import { getManager } from "typeorm";
+
+await getManager().transaction(transactionalEntityManager => {});
+```
+
+你想要在事务中运行的所有内容都必须在回调中执行：
+
+```typescript
+import { getManager } from "typeorm";
+
+await getManager().transaction(async transactionalEntityManager => {
+  await transactionalEntityManager.save(users);
+  await transactionalEntityManager.save(photos);
+  // ...
+});
+```
+
+当在事务中工作时需要**总是**使用提供的实体管理器实例 - `transactionalEntityManager`。 如果你使用全局管理器（来自`getManager`或来自连接的 `manager` 可能会遇到一些问题。 你也不能使用使用全局管理器或连接的类来执行查询。**必须**使用提供的事务实体管理器执行所有操作。
+
+#### 指定隔离级别
+
+指定事务的隔离级别可以通过将其作为第一个参数提供来完成：
+
+```typescript
+import { getManager } from "typeorm";
+
+await getManager().transaction("SERIALIZABLE", transactionalEntityManager => {});
+```
+
+隔离级别实现与所有数据库不相关。
+
+以下数据库驱动程序支持标准隔离级别（`READ UNCOMMITTED`，`READ COMMITTED`，`REPEATABLE READ`，`SERIALIZABLE`）：
+
+- MySQL
+- Postgres
+- SQL Server
+
+**SQlite**将事务默认为`SERIALIZABLE`，但如果启用了*shared cache mode*，则事务可以使用`READ UNCOMMITTED`隔离级别。
+
+**Oracle**仅支持`READ COMMITTED`和`SERIALIZABLE`隔离级别。
+
+#### 使用 QueryRunner 创建和控制单个数据库连接的状态
+
+`QueryRunner`提供单个数据库连接。 使用查询运行程序组织事务。 单个事务只能在单个查询运行器上建立。 你可以手动创建查询运行程序实例，并使用它来手动控制事务状态。 例如：
+
+```typescript
+import { getConnection } from "typeorm";
+
+// 获取连接并创建新的queryRunner
+const connection = getConnection();
+const queryRunner = connection.createQueryRunner();
+
+// 使用我们的新queryRunner建立真正的数据库连
+await queryRunner.connect();
+
+// 现在我们可以在queryRunner上执行任何查询，例如：
+await queryRunner.query("SELECT * FROM users");
+
+// 我们还可以访问与queryRunner创建的连接一起使用的实体管理器：
+const users = await queryRunner.manager.find(User);
+
+// 开始事务：
+await queryRunner.startTransaction();
+
+try {
+  // 对此事务执行一些操作：
+  await queryRunner.manager.save(user1);
+  await queryRunner.manager.save(user2);
+  await queryRunner.manager.save(photos);
+
+  // 提交事务：
+  await queryRunner.commitTransaction();
+} catch (err) {
+  // 有错误做出回滚更改
+  await queryRunner.rollbackTransaction();
+}
+```
+
+在`QueryRunner`中有 3 种控制事务的方法：
+
+- `startTransaction` - 启动一个新事务。
+- `commitTransaction` - 提交所有更改。
+- `rollbackTransaction` - 回滚所有更改。
+
+### Query Builder查询
+
+`QueryBuilder`是 `TypeORM` 最强大的功能之一 ，它允许你使用优雅便捷的语法构建 `SQL` 查询，执行并获得自动转换的实体。
+
+`QueryBuilder`的简单示例:
+
+```typescript
+const firstUser = await connection
+  .getRepository(User)
+  .createQueryBuilder("user")
+  .where("user.id = :id", { id: 1 })
+  .getOne();
+```
+
+它将生成以下 `SQL` 查询：
+
+```sql
+SELECT
+    user.id as userId,
+    user.firstName as userFirstName,
+    user.lastName as userLastName
+FROM users user
+WHERE user.id = 1
+```
+
+然后返回一个 `User` 实例:
+
+```json
+User {
+    id: 1,
+    firstName: "Timber",
+    lastName: "Saw"
+}
+```
+
+#### 创建和使用
+
+有几种方法可以创建`Query Builder`：
+
+- 使用 `connection`:
+
+  ```typescript
+  import { getConnection } from "typeorm";
+  
+  const user = await getConnection()
+    .createQueryBuilder()
+    .select("user")
+    .from(User, "user")
+    .where("user.id = :id", { id: 1 })
+    .getOne();
+  ```
+
+  
+
+- 使用 `entity manager`:
+
+  ```typescript
+  import { getManager } from "typeorm";
+  
+  const user = await getManager()
+    .createQueryBuilder(User, "user")
+    .where("user.id = :id", { id: 1 })
+    .getOne();
+  ```
+
+  
+
+- 使用 `repository`:
+
+  ```typescript
+  import { getRepository } from "typeorm";
+  
+  const user = await getRepository(User)
+    .createQueryBuilder("user")
+    .where("user.id = :id", { id: 1 })
+    .getOne();
+  ```
+
+  
+
+有 `5` 种不同的`QueryBuilder`类型可用：
+
+- `SelectQueryBuilder` - 用于构建和执行`SELECT`查询。 例如：
+
+  ```typescript
+  import { getConnection } from "typeorm";
+  
+  const user = await getConnection()
+    .createQueryBuilder()
+    .select("user")
+    .from(User, "user")
+    .where("user.id = :id", { id: 1 })
+    .getOne();
+  ```
+
+  
+
+- `InsertQueryBuilder` - 用于构建和执行`INSERT`查询。 例如：
+
+  ```typescript
+  import { getConnection } from "typeorm";
+  
+  await getConnection()
+    .createQueryBuilder()
+    .insert()
+    .into(User)
+    .values([{ firstName: "Timber", lastName: "Saw" }, { firstName: "Phantom", lastName: "Lancer" }])
+    .execute();
+  ```
+
+  
+
+- `UpdateQueryBuilder` - 用于构建和执行`UPDATE`查询。 例如：
+
+  ```typescript
+  import { getConnection } from "typeorm";
+  
+  await getConnection()
+    .createQueryBuilder()
+    .update(User)
+    .set({ firstName: "Timber", lastName: "Saw" })
+    .where("id = :id", { id: 1 })
+    .execute();
+  ```
+
+  
+
+- `DeleteQueryBuilder` - 用于构建和执行`DELETE`查询。 例如：
+
+  ```typescript
+  import { getConnection } from "typeorm";
+  
+  await getConnection()
+    .createQueryBuilder()
+    .delete()
+    .from(User)
+    .where("id = :id", { id: 1 })
+    .execute();
+  ```
+
+  
+
+- `RelationQueryBuilder` - 用于构建和执行特定于关系的操作[`TBD`]。
+
+你可以在其中切换任何不同类型的查询构建器，一旦执行，则将获得一个新的查询构建器实例（与所有其他方法不同）。
+
+#### 获取值
+
+要从数据库中获取单个结果，例如通过 `id` 或 `name` 获取用户，必须使用`getOne`：
+
+```typescript
+const timber = await getRepository(User)
+  .createQueryBuilder("user")
+  .where("user.id = :id OR user.name = :name", { id: 1, name: "Timber" })
+  .getOne();
+```
+
+要从数据库中获取多个结果，例如，要从数据库中获取所有用户，请使用`getMany`：
+
+```typescript
+const users = await getRepository(User)
+  .createQueryBuilder("user")
+  .getMany();
+```
+
+使用查询构建器查询可以获得两种类型的结果：`entities` 或 `raw results`。 大多数情况下，你只需要从数据库中选择真实实体，例如 `users`。 为此，你可以使用`getOne`和`getMany`。 但有时你需要选择一些特定的数据，比方说所有`sum of all user photos`。 此数据不是实体，它称为原始数据。 要获取原始数据，请使用`getRawOne`和`getRawMany`。 例如：
+
+```typescript
+const { sum } = await getRepository(User)
+  .createQueryBuilder("user")
+  .select("SUM(user.photosCount)", "sum")
+  .where("user.id = :id", { id: 1 })
+  .getRawOne();
+```
+
+```typescript
+const photosSums = await getRepository(User)
+  .createQueryBuilder("user")
+  .select("user.id")
+  .addSelect("SUM(user.photosCount)", "sum")
+  .where("user.id = :id", { id: 1 })
+  .getRawMany();
+
+// 结果会像这样: [{ id: 1, sum: 25 }, { id: 2, sum: 13 }, ...]
+```
+
+#### 别名
+
+我们使用`createQueryBuilder（"user"）`。 但什么是`user`？ 它只是一个常规的 `SQL` 别名。 我们在任何地方都使用别名，除非我们处理选定的数据。
+
+`createQueryBuilder("user")` 相当于：
+
+```typescript
+createQueryBuilder()
+  .select("user")
+  .from(User, "user");
+```
+
+这会生成以下 `sql` 查询：
+
+```sql
+SELECT ... FROM users user
+```
+
+在这个 `SQL` 查询中，`users`是表名，`user`是我们分配给该表的别名。
+
+稍后我们使用此别名来访问表：
+
+```typescript
+createQueryBuilder()
+  .select("user")
+  .from(User, "user")
+  .where("user.name = :name", { name: "Timber" });
+```
+
+以上代码会生成如下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user WHERE user.name = 'Timber'
+```
+
+看到了吧，我们使用了在创建查询构建器时分配的`user`别名来使用 `users` 表。
+
+一个查询构建器不限于一个别名，它们可以有多个别名。 每个选择都可以有自己的别名，你可以选择多个有自己别名的表，你可以使用自己的别名连接多个表。 你也可以使用这些别名来访问选择的表（或正在选择的数据）。
+
+#### 使用参数来转义数据
+
+我们使用了`where("user.name = :name", { name: "Timber" })`. `{name：“Timber”}`代表什么？ 这是我们用来阻止 `SQL注入`的参数。 我们可以写：`where（"user.name ='"+ name +"'）`，但是这不安全，因为有可能被 `SQL注入`。 安全的方法是使用这种特殊的语法：`where（"user.name = :name"，{name:"Timber"}）`，其中`name`是参数名，值在对象中指定： `{name:"Timber"}`。
+
+```typescript
+.where("user.name = :name", { name: "Timber" })
+```
+
+是下面的简写：
+
+```typescript
+.where("user.name = :name")
+.setParameter("name", "Timber")
+```
+
+注意：不要在查询构建器中为不同的值使用相同的参数名称。如果多次设置则后值将会把前面的覆盖。
+
+还可以提供一组值，并使用特殊的扩展语法将它们转换为`SQL`语句中的值列表：
+
+```typescript
+.where("user.name IN (:...names)", { names: [ "Timber", "Cristal", "Lina" ] })
+```
+
+该语句将生成：
+
+```sql
+WHERE user.name IN ('Timber', 'Cristal', 'Lina')
+```
+
+#### 添加WHERE表达式
+
+添加 `WHERE` 表达式就像：
+
+```typescript
+createQueryBuilder("user").where("user.name = :name", { name: "Timber" });
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user WHERE user.name = 'Timber'
+```
+
+你可以将 `AND` 添加到现有的 `WHERE` 表达式中：
+
+```typescript
+createQueryBuilder("user")
+  .where("user.firstName = :firstName", { firstName: "Timber" })
+  .andWhere("user.lastName = :lastName", { lastName: "Saw" });
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user WHERE user.firstName = 'Timber' AND user.lastName = 'Saw'
+```
+
+你也可以添加 `OR` 添加到现有的 `WHERE` 表达式中：
+
+```typescript
+createQueryBuilder("user")
+  .where("user.firstName = :firstName", { firstName: "Timber" })
+  .orWhere("user.lastName = :lastName", { lastName: "Saw" });
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user WHERE user.firstName = 'Timber' OR user.lastName = 'Saw'
+```
+
+你可以使用`Brackets`将复杂的`WHERE`表达式添加到现有的`WHERE`中：
+
+```typescript
+createQueryBuilder("user")
+    .where("user.registered = :registered", { registered: true })
+    .andWhere(new Brackets(qb => {
+        qb.where("user.firstName = :firstName", { firstName: "Timber" })
+          .orWhere("user.lastName = :lastName", { lastName: "Saw" })
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user WHERE user.registered = true AND (user.firstName = 'Timber' OR user.lastName = 'Saw')
+```
+
+你可以根据需要组合尽可能多的`AND`和`OR`表达式。 如果你多次使用`.where`，你将覆盖所有以前的`WHERE`表达式。 注意：小心`orWhere` - 如果你使用带有`AND`和`OR`表达式的复杂表达式，请记住他们将无限制的叠加。 有时你只需要创建一个 `where` 字符串，避免使用`orWhere`。
+
+#### 添加HAVING表达式
+
+添加`HAVING`表达式很简单：
+
+```typescript
+createQueryBuilder("user").having("user.name = :name", { name: "Timber" });
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user HAVING user.name = 'Timber'
+```
+
+你可以添加 `AND` 到已经存在的 `HAVING` 表达式中：
+
+```typescript
+createQueryBuilder("user")
+  .having("user.firstName = :firstName", { firstName: "Timber" })
+  .andHaving("user.lastName = :lastName", { lastName: "Saw" });
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user HAVING user.firstName = 'Timber' AND user.lastName = 'Saw'
+```
+
+你可以添加 `OR` 到已经存在的 `HAVING` 表达式中：
+
+```typescript
+createQueryBuilder("user")
+  .having("user.firstName = :firstName", { firstName: "Timber" })
+  .orHaving("user.lastName = :lastName", { lastName: "Saw" });
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user HAVING user.firstName = 'Timber' OR user.lastName = 'Saw'
+```
+
+你可以根据需要组合尽可能多的`AND`和`OR`表达式。 如果使用多个`.having`，后面的将覆盖所有之前的`HAVING`表达式。
+
+#### 添加ORDER BY表达式
+
+添加 `ORDER BY` 很简单：
+
+```typescript
+createQueryBuilder("user").orderBy("user.id");
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user ORDER BY user.id
+```
+
+你可以将排序方向从升序更改为降序（或反之亦然）：
+
+```typescript
+createQueryBuilder("user").orderBy("user.id", "DESC");
+
+createQueryBuilder("user").orderBy("user.id", "ASC");
+```
+
+也可以添加多个排序条件：
+
+```typescript
+createQueryBuilder("user")
+  .orderBy("user.name")
+  .addOrderBy("user.id");
+```
+
+还可以使用排序字段作为一个 `map`：
+
+```typescript
+createQueryBuilder("user").orderBy({
+  "user.name": "ASC",
+  "user.id": "DESC"
+});
+```
+
+如果你使用了多个`.orderBy`，后面的将覆盖所有之前的`ORDER BY`表达式。
+
+#### 添加GROUP BY表达式
+
+添加 `GROUP BY` 表达式很简单：
+
+```typescript
+createQueryBuilder("user").groupBy("user.id");
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user GROUP BY user.id
+```
+
+如果要使用更多 `group-by`, 则可以使用 `addGroupBy`:
+
+```typescript
+createQueryBuilder("user")
+  .groupBy("user.name")
+  .addGroupBy("user.id");
+```
+
+如果使用了多个`.groupBy` ，则后面的将会覆盖之前所有的 `ORDER BY` 表达式。
+
+#### 添加LIMIT表达式
+
+添加 `LIMIT` 表达式很简单：
+
+```typescript
+createQueryBuilder("user").limit(10);
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user LIMIT 10
+```
+
+生成的 `SQL` 查询取决于数据库的类型（`SQL`，`mySQL`，`Postgres` 等）。 注意：如果你使用带有连接或子查询的复杂查询，`LIMIT` 可能无法正常工作。 如果使用分页，建议使用`take`代替。
+
+#### 添加OFFSET表达式
+
+添加`OFFSET`表达式很简单：
+
+```typescript
+createQueryBuilder("user").offset(10);
+```
+
+将会生成以下 `SQL` 语句：
+
+```sql
+SELECT ... FROM users user OFFSET 10
+```
+
+生成的 `SQL` 查询取决于数据库的类型（`SQL`，`mySQL`，`Postgres` 等）。 注意：如果你使用带有连接或子查询的复杂查询，`OFFSET` 可能无法正常工作。 如果使用分页，建议使用`skip`代替。
+
+#### 联查
+
+假设有以下实体：
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from "typeorm";
+import { Photo } from "./Photo";
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+
+  @OneToMany(type => Photo, photo => photo.user)
+  photos: Photo[];
+}
+```
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from "typeorm";
+import { User } from "./User";
+
+@Entity()
+export class Photo {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  url: string;
+
+  @ManyToOne(type => User, user => user.photos)
+  user: User;
+}
+```
+
+现在让我们假设你要用用户`"Timber"`加载他所有的` photos`：
+
+```typescript
+const user = await createQueryBuilder("user")
+  .leftJoinAndSelect("user.photos", "photo")
+  .where("user.name = :name", { name: "Timber" })
+  .getOne();
+```
+
+你将会得到以下结果：
+
+```typescript
+{
+    id: 1,
+    name: "Timber",
+    photos: [{
+        id: 1,
+        url: "me-with-chakram.jpg"
+    }, {
+        id: 2,
+        url: "me-with-trees.jpg"
+    }]
+}
+```
+
+你可以看到`leftJoinAndSelect`自动加载了所有 `Timber` 的 `photos`。 第一个参数是你要加载的关系，第二个参数是你为此关系的表分配的别名。 你可以在查询构建器中的任何位置使用此别名。 例如，让我们获得所有未删除的 `Timber` 的 `photos`。
+
+```typescript
+const user = await createQueryBuilder("user")
+  .leftJoinAndSelect("user.photos", "photo")
+  .where("user.name = :name", { name: "Timber" })
+  .andWhere("photo.isRemoved = :isRemoved", { isRemoved: false })
+  .getOne();
+```
+
+将会生成以下 `SQL` 查询：
+
+```sql
+SELECT user.*, photo.* FROM users user
+    LEFT JOIN photos photo ON photo.user = user.id
+    WHERE user.name = 'Timber' AND photo.isRemoved = FALSE
+```
+
+你还可以向连接表达式添加条件，而不是使用`"where"`：
+
+```typescript
+const user = await createQueryBuilder("user")
+  .leftJoinAndSelect("user.photos", "photo", "photo.isRemoved = :isRemoved", { isRemoved: false })
+  .where("user.name = :name", { name: "Timber" })
+  .getOne();
+```
+
+这将生成以下 `sql` 查询：
+
+```sql
+SELECT user.*, photo.* FROM users user
+    LEFT JOIN photos photo ON photo.user = user.id AND photo.isRemoved = FALSE
+    WHERE user.name = 'Timber'
+```
+
+#### 内联和左联
+
+如果你想使用`INNER JOIN`而不是`LEFT JOIN`，只需使用`innerJoinAndSelect`：
+
+```typescript
+const user = await createQueryBuilder("user")
+  .innerJoinAndSelect("user.photos", "photo", "photo.isRemoved = :isRemoved", { isRemoved: false })
+  .where("user.name = :name", { name: "Timber" })
+  .getOne();
+```
+
+将会生成:
+
+```sql
+SELECT user.*, photo.* FROM users user
+    INNER JOIN photos photo ON photo.user = user.id AND photo.isRemoved = FALSE
+    WHERE user.name = 'Timber'
+```
+
+`LEFT JOIN`和`INNER JOIN`之间的区别在于，如果没有任何 `photos`，`INNER JOIN`将不会返回 `user`。 即使没有 `photos`，`LEFT JOIN`也会返回 `user`。 
+
+#### 不使用条件的联查
+
+你可以在不使用条件的情况下联查数据。 要做到这一点，使用`leftJoin`或`innerJoin`：
+
+```typescript
+const user = await createQueryBuilder("user")
+  .innerJoin("user.photos", "photo")
+  .where("user.name = :name", { name: "Timber" })
+  .getOne();
+```
+
+将会生成如下 `SQL` 语句：
+
+```sql
+SELECT user.* FROM users user
+    INNER JOIN photos photo ON photo.user = user.id
+    WHERE user.name = 'Timber'
+```
+
+这将会返回 `Timber` ，如果他有 `photos`，但是并不会返回他的 `photos`。
+
+#### 联查任何实体或表
+
+你不仅能联查关系，还能联查任何其他实体或表。
+
+例如：
+
+```typescript
+const user = await createQueryBuilder("user")
+  .leftJoinAndSelect(Photo, "photo", "photo.userId = user.id")
+  .getMany();
+```
+
+```typescript
+const user = await createQueryBuilder("user")
+  .leftJoinAndSelect("photos", "photo", "photo.userId = user.id")
+  .getMany();
+```
+
+#### 联查和映射功能
+
+将`profilePhoto`添加到`User`实体，你可以使用`QueryBuilder`将任何数据映射到该属性：
+
+```typescript
+export class User {
+  /// ...
+  profilePhoto: Photo;
+}
+```
+
+```typescript
+const user = await createQueryBuilder("user")
+  .leftJoinAndMapOne("user.profilePhoto", "user.photos", "photo", "photo.isForProfile = TRUE")
+  .where("user.name = :name", { name: "Timber" })
+  .getOne();
+```
+
+这将加载 `Timber` 的个人资料照片并将其设置为`user.profilePhoto`。 如果要加载并映射单个实体，请使用`leftJoinAndMapOne`。 如果要加载和映射多个实体，请使用`leftJoinAndMapMany`。
+
+#### 获取生成的sql查询语句
+
+有时你可能想要获取`QueryBuilder`生成的 `SQL` 查询。 为此，请使用`getSql`：
+
+```typescript
+const sql = createQueryBuilder("user")
+  .where("user.firstName = :firstName", { firstName: "Timber" })
+  .orWhere("user.lastName = :lastName", { lastName: "Saw" })
+  .getSql();
+```
+
+出于调试目的，你也可以使用`printSql`：
+
+```typescript
+const users = await createQueryBuilder("user")
+  .where("user.firstName = :firstName", { firstName: "Timber" })
+  .orWhere("user.lastName = :lastName", { lastName: "Saw" })
+  .printSql()
+  .getMany();
+```
+
+此查询将返回 `users` 并将使用的 `sql` 语句打印到控制台。
+
+#### 获得原始结果
+
+使用选择查询构建器可以获得两种类型的结果：`entities` 和 `raw results`。 大多数情况下，你只需要从数据库中选择真实实体，例如 `users`。 为此，你可以使用`getOne`和`getMany`。 但是，有时需要选择特定数据，例如 `sum of all user photos`。 这些数据不是实体，它被称为原始数据。 要获取原始数据，请使用`getRawOne`和`getRawMany`。 例如：
+
+```typescript
+const { sum } = await getRepository(User)
+  .createQueryBuilder("user")
+  .select("SUM(user.photosCount)", "sum")
+  .where("user.id = :id", { id: 1 })
+  .getRawOne();
+```
+
+```typescript
+const photosSums = await getRepository(User)
+  .createQueryBuilder("user")
+  .select("user.id")
+  .addSelect("SUM(user.photosCount)", "sum")
+  .where("user.id = :id", { id: 1 })
+  .getRawMany();
+
+// 结果将会像这样: [{ id: 1, sum: 25 }, { id: 2, sum: 13 }, ...]
+```
+
+#### 流数据
+
+你可以使用`stream`来返回流。 `Streaming` 返回原始数据，必须手动处理实体转换：
+
+```typescript
+const stream = await getRepository(User)
+  .createQueryBuilder("user")
+  .where("user.id = :id", { id: 1 })
+  .stream();
+```
+
+#### 使用分页
+
+大多数情况下，在开发应用程序时，你可能需要分页功能。 如果你的应用程序中有分页，`page slider` 或无限滚动组件，则使用此选项。
+
+```typescript
+const users = await getRepository(User)
+  .createQueryBuilder("user")
+  .leftJoinAndSelect("user.photos", "photo")
+  .take(10)
+  .getMany();
+```
+
+将会返回前 `10` 个 `user` 的 `photos`。
+
+```typescript
+const users = await getRepository(User)
+  .createQueryBuilder("user")
+  .leftJoinAndSelect("user.photos", "photo")
+  .skip(10)
+  .getMany();
+```
+
+将返回除了前 `10` 个 `user` 以外的所有 `user` 的 `photos`。
+
+你可以组合这些方法：
+
+```typescript
+const users = await getRepository(User)
+  .createQueryBuilder("user")
+  .leftJoinAndSelect("user.photos", "photo")
+  .skip(5)
+  .take(10)
+  .getMany();
+```
+
+这将跳过前 `5` 个 `users`，并获取他们之后的 `10` 个 `user`。
+
+`take`和`skip`可能看起来像我们正在使用`limit`和`offset`，但它们不是。 一旦你有更复杂的连接或子查询查询，`limit`和`offset`可能无法正常工作。 使用`take`和`skip`可以防止这些问题。
+
+#### 加锁
+
+`QueryBuilder` 支持 `optimistic` 和 `pessimistic` 锁定。 要使用 `pessimistic 读锁定`，请使用以下方式：
+
+```typescript
+const users = await getRepository(User)
+  .createQueryBuilder("user")
+  .setLock("pessimistic_read")
+  .getMany();
+```
+
+要使用 `pessimistic 写锁定`，请使用以下方式：
+
+```typescript
+const users = await getRepository(User)
+  .createQueryBuilder("user")
+  .setLock("pessimistic_write")
+  .getMany();
+```
+
+要使用 `optimistic 读锁定`，请使用以下方式：
+
+```typescript
+const users = await getRepository(User)
+  .createQueryBuilder("user")
+  .setLock("optimistic", existUser.version)
+  .getMany();
+```
+
+要使用 `dirty 读锁定`，请使用以下方式：
+
+```typescript
+const users = await getRepository(User)
+    .createQueryBuilder("user")
+    .setLock("dirty_read")
+    .getMany();
+```
+
+`Optimistic` 锁定与`@Version`和`@UpdatedDate`装饰器一起使用。
+
+#### 查询部分字段
+
+如果只想选择实体的某些属性，可以使用以下语法：
+
+```typescript
+const users = await getRepository(User)
+  .createQueryBuilder("user")
+  .select(["user.id", "user.name"])
+  .getMany();
+```
+
+这只会选择`User`的`id`和`name`。
+
+#### 使用子查询
+
+你可以轻松创建子查询。 `FROM`，`WHERE`和`JOIN`表达式都支持子查询。 例如：
+
+```typescript
+const qb = await getRepository(Post).createQueryBuilder("post");
+const posts = qb
+  .where(
+    "post.title IN " +
+      qb
+        .subQuery()
+        .select("user.name")
+        .from(User, "user")
+        .where("user.registered = :registered")
+        .getQuery()
+  )
+  .setParameter("registered", true)
+  .getMany();
+```
+
+使用更优雅的方式来做同样的事情：
+
+```typescript
+const posts = await connection
+  .getRepository(Post)
+  .createQueryBuilder("post")
+  .where(qb => {
+    const subQuery = qb
+      .subQuery()
+      .select("user.name")
+      .from(User, "user")
+      .where("user.registered = :registered")
+      .getQuery();
+    return "post.title IN " + subQuery;
+  })
+  .setParameter("registered", true)
+  .getMany();
+```
+
+或者，你可以创建单独的查询构建器并使用其生成的 `SQL`：
+
+```typescript
+const userQb = await connection
+  .getRepository(User)
+  .createQueryBuilder("user")
+  .select("user.name")
+  .where("user.registered = :registered", { registered: true });
+
+const posts = await connection
+  .getRepository(Post)
+  .createQueryBuilder("post")
+  .where("post.title IN (" + userQb.getQuery() + ")")
+  .setParameters(userQb.getParameters())
+  .getMany();
+```
+
+你可以在`FROM`中创建子查询，如下所示：
+
+```typescript
+const userQb = await connection
+  .getRepository(User)
+  .createQueryBuilder("user")
+  .select("user.name", "name")
+  .where("user.registered = :registered", { registered: true });
+
+const posts = await connection
+  .createQueryBuilder()
+  .select("user.name", "name")
+  .from("(" + userQb.getQuery() + ")", "user")
+  .setParameters(userQb.getParameters())
+  .getRawMany();
+```
+
+或使用更优雅的语法：
+
+```typescript
+const posts = await connection
+  .createQueryBuilder()
+  .select("user.name", "name")
+  .from(subQuery => {
+    return subQuery
+      .select("user.name", "name")
+      .from(User, "user")
+      .where("user.registered = :registered", { registered: true });
+  }, "user")
+  .getRawMany();
+```
+
+如果想添加一个子查询做为`"second from"`，请使用`addFrom`。
+
+你也可以在`SELECT`语句中使用子查询：
+
+```typescript
+const posts = await connection
+  .createQueryBuilder()
+  .select("post.id", "id")
+  .addSelect(subQuery => {
+    return subQuery
+      .select("user.name", "name")
+      .from(User, "user")
+      .limit(1);
+  }, "name")
+  .from(Post, "post")
+  .getRawMany();
+```
+
+#### 隐藏列
+
+如果要查询的模型具有`"select：false"`的列，则必须使用`addSelect`函数来从列中检索信息。
+
+假设你有以下实体：
+
+```typescript
+import { Entity, PrimaryGeneratedColumn, Column } from "typeorm";
+
+@Entity()
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+
+  @Column({ select: false })
+  password: string;
+}
+```
+
+使用标准的`find`或查询，你将不会接收到模型的`password`属性。 但是，如果执行以下操作：
+
+```typescript
+const users = await connection
+  .getRepository(User)
+  .createQueryBuilder()
+  .select("user.id", "id")
+  .addSelect("user.password")
+  .getMany();
+```
+
+你将在查询中获得属性`password`。
+
+### Query builder插入
+
+你可以使用`QueryBuilder`创建`INSERT`查询。 例如：
+
+```typescript
+import { getConnection } from "typeorm";
+
+await getConnection()
+  .createQueryBuilder()
+  .insert()
+  .into(User)
+  .values([{ firstName: "Timber", lastName: "Saw" }, { firstName: "Phantom", lastName: "Lancer" }])
+  .execute();
+```
+
+就性能而言，这是向数据库中插入实体的最有效方法。 你也可以通过这种方式执行批量插入。
+
+#### 原始SQL支持
+
+在某些情况下需要执行函数`SQL`查询时：
+
+```typescript
+import {getConnection} from "typeorm";
+
+await getConnection()
+    .createQueryBuilder()
+    .insert()
+    .into(User)
+    .values({ 
+        firstName: "Timber", 
+        lastName: () => "CONCAT('S', 'A', 'W')"
+    })
+    .execute();
+```
+
+此语法不会对值进行转义，你需要自己处理转义。
+
+### Query Builder更新
+
+你可以使用`QueryBuilder`创建`UPDATE`查询。 例如：
+
+```typescript
+import { getConnection } from "typeorm";
+
+await getConnection()
+  .createQueryBuilder()
+  .update(User)
+  .set({ firstName: "Timber", lastName: "Saw" })
+  .where("id = :id", { id: 1 })
+  .execute();
+```
+
+就性能而言，这是更新数据库中的实体的最有效方法。
+
+#### 原始SQL支持
+
+在某些情况下需要执行函数`SQL`查询时：
+
+```typescript
+import {getConnection} from "typeorm";
+await getConnection()
+   .createQueryBuilder()
+   .update(User)
+   .set({ 
+       firstName: "Timber", 
+       lastName: "Saw",
+       age: () => "'age' + 1"
+   })
+   .where("id = :id", { id: 1 })
+   .execute();
+```
+
+此语法不会对值进行转义，你需要自己处理转义。
+
+### Query Builder 删除
+
+你可以使用`QueryBuilder`创建`DELETE`查询。 例如：
+
+```typescript
+import { getConnection } from "typeorm";
+
+await getConnection()
+  .createQueryBuilder()
+  .delete()
+  .from(User)
+  .where("id = :id", { id: 1 })
+  .execute();
+```
+
+就性能而言，这是删除数据库中的实体的最有效方法。
+
+### 与Relations结合
+
+`RelationQueryBuilder`是`QueryBuilder`的一种允许你使用关系来查询的特殊类型。 通过使用你可以在数据库中将实体彼此绑定，而无需加载任何实体，或者可以轻松地加载相关实体。 例如：
+
+例如，我们有一个`Post`实体，它与`Category`有一个多对多的关系，叫做`categories`。 让我们为这种多对多关系添加一个新 category：
+
+```typescript
+import { getConnection } from "typeorm";
+
+await getConnection()
+  .createQueryBuilder()
+  .relation(Post, "categories")
+  .of(post)
+  .add(category);
+```
+
+这段代码相当于：
+
+```typescript
+import { getManager } from "typeorm";
+
+const postRepository = getRepository(Post);
+const post = await postRepository.findOne(1, { relations: ["categories"] });
+post.categories.push(category);
+await postRepository.save(post);
+```
+
+但是这样使用第一种方式效率更高，因为它执行的操作数量最少，并且绑定数据库中的实体，这比每次都调用`save`这种笨重的方法简化了很多。
+
+此外，这种方法的另一个好处是不需要在 `pushing` 之前加载每个相关实体。 例如，如果你在一个 `post` 中有一万个 `categories`，那么在此列表中添加新 `posts` 可能会产生问题，因为执行此操作的标准方法是加载包含所有一万个 `categories` 的 `post`，`push` 一个新 `category` 然后保存。 这将会导致非常高的性能成本，而且基本上不适用于生产环境。 但是，使用`RelationQueryBuilder`则解决了这个问题。
+
+此外，当进行绑定时，可以不需要使用实体，只需要使用实体 `ID` 即可。 例如，让我们在 `id` 为 `1` 的 `post` 中添加 `id = 3` 的 `category`：
+
+```typescript
+import { getConnection } from "typeorm";
+
+await getConnection()
+  .createQueryBuilder()
+  .relation(Post, "categories")
+  .of(1)
+  .add(3);
+```
+
+如果你使用了复合主键，则必须将它们作为 `id` 映射传递，例如：
+
+```typescript
+import { getConnection } from "typeorm";
+
+await getConnection()
+  .createQueryBuilder()
+  .relation(Post, "categories")
+  .of({ firstPostId: 1, secondPostId: 3 })
+  .add({ firstCategoryId: 2, secondCategoryId: 4 });
+```
+
+以按照添加实体的方式删除实体：
+
+```typescript
+import { getConnection } from "typeorm";
+
+// 此代码从给定的post中删除一个category
+await getConnection()
+  .createQueryBuilder()
+  .relation(Post, "categories")
+  .of(post) // 也可以使用post id
+  .remove(category); // 也可以只使用category ID
+```
+
+添加和删除相关实体针对`多对多`和`一对多`关系。 对于`一对一`和`多对一`关系，请使用`set`代替：
+
+```typescript
+import { getConnection } from "typeorm";
+
+// 此代码set给定post的category
+await getConnection()
+  .createQueryBuilder()
+  .relation(Post, "categories")
+  .of(post) // 也可以使用post id
+  .set(category); // 也可以只使用category ID
+```
+
+如果要取消设置关系（将其设置为 `null`），只需将`null`传递给`set`方法：
+
+```typescript
+import { getConnection } from "typeorm";
+
+// 此代码取消设置给定post的category
+await getConnection()
+  .createQueryBuilder()
+  .relation(Post, "categories")
+  .of(post) // 也可以使用post id
+  .set(null);
+```
+
+除了更新关系外，关系查询构建器还允许你加载关系实体。 例如，假设在`Post`实体内部，我们有多对多的`categories`关系和多对一的`user`关系，为加载这些关系，你可以使用以下代码：
+
+```typescript
+import { getConnection } from "typeorm";
+
+const post = await getConnection().manager.findOne(Post, 1);
+
+post.categories = await getConnection()
+  .createQueryBuilder()
+  .relation(Post, "categories")
+  .of(post) // 也可以使用post id
+  .loadMany();
+
+post.author = await getConnection()
+  .createQueryBuilder()
+  .relation(User, "user")
+  .of(post) // 也可以使用post id
+  .loadOne();
+```
